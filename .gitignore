@@ -39,3 +39,7 @@
 
 # debug information files
 *.dwo
+
+# files
+models/
+objs/
