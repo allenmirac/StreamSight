@@ -46,4 +46,5 @@ objs/
 bin/
 *.mp4
 .vscode
+.cline
 CLAUDE.md
