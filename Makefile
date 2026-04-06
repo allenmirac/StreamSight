@@ -1,4 +1,4 @@
-DEUBG = -D_DEBUG
+DEBUG = -D_DEBUG
 
 TARGET1 = rtsp_server
 TARGET2 = rtsp_pusher
@@ -6,6 +6,7 @@ TARGET3 = rtsp_h264_file
 TARGET4 = rtsp_analysis_server
 
 OBJS_PATH = objs
+BIN_PATH = bin
 
 CROSS_COMPILE =
 CXX   = $(CROSS_COMPILE)g++
@@ -24,8 +25,8 @@ OPENCV_LIBS   := $(shell pkg-config --libs   opencv4 2>/dev/null || pkg-config -
 
 LIB  = $(OPENCV_LIBS)
 
-LD_FLAGS  = -lrt -pthread -lpthread -ldl -lm $(DEBUG)
-CXX_FLAGS = -std=c++11 $(OPENCV_CFLAGS)
+LD_FLAGS  = -lrt -pthread -lpthread -ldl -lm $(DEBUG) -g
+CXX_FLAGS = -std=c++11 $(OPENCV_CFLAGS) -g
 
 O_FLAG = -O2
 
@@ -58,18 +59,19 @@ all: BUILD_DIR $(TARGET1) $(TARGET2) $(TARGET3) $(TARGET4)
 
 BUILD_DIR:
 	@-mkdir -p $(OBJS_PATH)
+	@-mkdir -p $(BIN_PATH)
 
 $(TARGET1) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS3)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS3) -o $@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS3) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
 
 $(TARGET2) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS4)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS4) -o $@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS4) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
 
 $(TARGET3) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS5)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS5) -o $@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS5) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
 
 $(TARGET4) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS6) $(OBJS7)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS6) $(OBJS7) -o $@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS) $(LIB)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS6) $(OBJS7) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS) $(LIB)
 
 # ── Compile rules ─────────────────────────────────────────────────────────────
 $(OBJS_PATH)/%.o : ./example/%.cpp
@@ -82,4 +84,4 @@ $(OBJS_PATH)/%.o : ./src/ai/%.cpp
 	$(CXX) -c  $< -o  $@  $(CXX_FLAGS) $(INC)
 
 clean:
-	-rm -rf $(OBJS_PATH) $(TARGET1) $(TARGET2) $(TARGET3) $(TARGET4)
+	-rm -rf $(OBJS_PATH) bin/$(TARGET1) bin/$(TARGET2) bin/$(TARGET3) bin/$(TARGET4)

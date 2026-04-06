@@ -43,3 +43,7 @@
 # files
 models/
 objs/
+bin/
+*.mp4
+.vscode
+CLAUDE.md

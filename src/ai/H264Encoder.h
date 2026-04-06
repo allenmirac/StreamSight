@@ -75,6 +75,8 @@ public:
 
     bool IsOpened() const { return opened_; }
 
+    double GetFPS() const { return fps_; }
+
 private:
     int           width_;
     int           height_;
