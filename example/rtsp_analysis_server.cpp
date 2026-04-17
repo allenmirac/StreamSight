@@ -160,6 +160,13 @@ static void RunPipeline(Pipeline& p) {
             cv::resize(frame, frame, cv::Size(p.width, p.height));
         }
 
+        // 关键修复：统一转换为编码器所需格式
+        cv::Mat processed_frame = frame;
+        if (p.encoder->requiresYUV() && frame.type() == CV_8UC3) {
+            cv::cvtColor(frame, processed_frame, cv::COLOR_BGR2YUV_I420);
+            // std::cout << "[FIX] Converted BGR to YUV_I420 for NO-AI path" << std::endl;
+        }
+
         // AI 分析和叠加
         if (!p.no_ai && p.analyzer) {
             try {

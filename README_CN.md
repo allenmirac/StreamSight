@@ -69,7 +69,7 @@ wget -O models/face_recognition.onnx \
 
 ```bash
 # 本地视频文件模式（含 AI 分析）
-./rtsp_analysis_server --source file --input test.h264 --port 8554 --http-port 8080
+./rtsp_analysis_server --source file --input ../pic/test.mp4 --port 8554 --http-port 8080
 
 # USB 摄像头模式
 ./rtsp_analysis_server --source camera --device 0 --port 8554 --http-port 8080

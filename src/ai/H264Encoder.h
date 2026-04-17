@@ -73,7 +73,7 @@ public:
      */
     bool EncodeFrame(const cv::Mat& frame);
 
-    bool IsOpened() const { return opened_; }
+    bool requiresYUV() const;
 
     double GetFPS() const { return fps_; }
 

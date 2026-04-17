@@ -42,9 +42,77 @@
 ```
 RtspServer/
 ├── src/
-│   ├── net/          # 网络层 (Reactor, EventLoop, TcpServer) — 不修改
-│   ├── xop/          # RTSP/RTP 协议层 — 不修改
-│   └── ai/           # 新增 AI 分析层
+│   ├── net/          # 网络层 (Reactor, EventLoop, TcpServer)
+│   │   ├── Acceptor.cpp
+│   │   ├── Acceptor.h
+│   │   ├── BufferReader.cpp
+│   │   ├── BufferReader.h
+│   │   ├── BufferWriter.cpp
+│   │   ├── BufferWriter.h
+│   │   ├── Channel.h
+│   │   ├── EpollTaskScheduler.cpp
+│   │   ├── EpollTaskScheduler.h
+│   │   ├── EventLoop.cpp
+│   │   ├── EventLoop.h
+│   │   ├── Logger.cpp
+│   │   ├── Logger.h
+│   │   ├── MemoryManager.cpp
+│   │   ├── MemoryManager.h
+│   │   ├── NetInterface.cpp
+│   │   ├── NetInterface.h
+│   │   ├── Pipe.cpp
+│   │   ├── Pipe.h
+│   │   ├── RingBuffer.h
+│   │   ├── SelectTaskScheduler.cpp
+│   │   ├── SelectTaskScheduler.h
+│   │   ├── Socket.h
+│   │   ├── SocketUtil.cpp
+│   │   ├── SocketUtil.h
+│   │   ├── TaskScheduler.cpp
+│   │   ├── TaskScheduler.h
+│   │   ├── TcpConnection.cpp
+│   │   ├── TcpConnection.h
+│   │   ├── TcpServer.cpp
+│   │   ├── TcpServer.h
+│   │   ├── TcpSocket.cpp
+│   │   ├── TcpSocket.h
+│   │   ├── Timer.cpp
+│   │   ├── Timer.h
+│   │   ├── Timestamp.cpp
+│   │   ├── Timestamp.h
+│   │   └── log.h
+│   └── xop
+│   │    ├── AACSource.cpp
+│   │    ├── AACSource.h
+│   │    ├── DigestAuthentication.cpp
+│   │    ├── DigestAuthentication.h
+│   │    ├── G711ASource.cpp
+│   │    ├── G711ASource.h
+│   │    ├── H264Parser.cpp
+│   │    ├── H264Parser.h
+│   │    ├── H264Source.cpp
+│   │    ├── H264Source.h
+│   │    ├── H265Source.cpp
+│   │    ├── H265Source.h
+│   │    ├── MediaSession.cpp
+│   │    ├── MediaSession.h
+│   │    ├── MediaSource.h
+│   │    ├── RtpConnection.cpp
+│   │    ├── RtpConnection.h
+│   │    ├── RtspConnection.cpp
+│   │    ├── RtspConnection.h
+│   │    ├── RtspMessage.cpp
+│   │    ├── RtspMessage.h
+│   │    ├── RtspPusher.cpp
+│   │    ├── RtspPusher.h
+│   │    ├── RtspServer.cpp
+│   │    ├── RtspServer.h
+│   │    ├── VP8Source.cpp
+│   │    ├── VP8Source.h
+│   │    ├── media.h
+│   │    ├── rtp.h
+│   │    └── rtsp.h
+│   └── ai/                       # 新增 AI 分析层
 │       ├── VideoSource.h         # 视频源抽象接口
 │       ├── CameraSource.*        # USB/V4L2 摄像头
 │       ├── FileSource.*          # 本地视频文件

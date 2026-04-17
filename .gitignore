@@ -44,6 +44,7 @@
 models/
 objs/
 bin/
+*.png
 *.mp4
 .vscode
 .cline

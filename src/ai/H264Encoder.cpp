@@ -196,6 +196,10 @@ void H264Encoder::Close() {
     }
 }
 
+bool H264Encoder::requiresYUV() const {
+    return true;
+}
+
 bool H264Encoder::EncodeFrame(const cv::Mat& frame) {
     if (!opened_ || impl_->write_fd < 0) return false;
     if (frame.cols != width_ || frame.rows != height_ ||
