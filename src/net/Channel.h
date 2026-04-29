@@ -1,5 +1,3 @@
-// PHZ
-// 2018-5-15
     
 #ifndef XOP_CHANNEL_H
 #define XOP_CHANNEL_H

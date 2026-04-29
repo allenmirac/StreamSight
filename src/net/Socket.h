@@ -1,5 +1,3 @@
-// PHZ
-// 2018-5-15
 
 #ifndef XOP_SOCKET_H
 #define XOP_SOCKET_H

@@ -1,5 +1,3 @@
-// PHZ
-// 2018-5-15
 
 #include "EpollTaskScheduler.h"
 

@@ -1,5 +1,3 @@
-// PHZ
-// 2018-5-15
 
 #ifndef XOP_BUFFER_READER_H
 #define XOP_BUFFER_READER_H
