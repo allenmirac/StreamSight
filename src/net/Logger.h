@@ -1,6 +1,3 @@
-// PHZ
-// 2020-5-15
-
 #ifndef XOP_LOGGER_H
 #define XOP_LOGGER_H
 

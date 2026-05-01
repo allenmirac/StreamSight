@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2018-5-16
-
-#ifndef XOP_MEDIA_H
+﻿#ifndef XOP_MEDIA_H
 #define XOP_MEDIA_H
 
 #include <memory>

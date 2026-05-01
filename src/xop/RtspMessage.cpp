@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2018-5-16
-
-#if defined(WIN32) || defined(_WIN32)
+﻿#if defined(WIN32) || defined(_WIN32)
 #ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 #endif

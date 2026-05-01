@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2018-9-30
-
-#include "RtpConnection.h"
+﻿#include "RtpConnection.h"
 #include "RtspConnection.h"
 #include "net/SocketUtil.h"
 

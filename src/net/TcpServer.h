@@ -1,6 +1,3 @@
-// PHZ
-// 2018-11-10
-
 #ifndef XOP_TCPSERVER_H
 #define XOP_TCPSERVER_H
 

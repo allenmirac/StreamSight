@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2020-4-2
-
-#ifndef XOP_RTSP_SERVER_H
+﻿#ifndef XOP_RTSP_SERVER_H
 #define XOP_RTSP_SERVER_H
 
 #include <memory>

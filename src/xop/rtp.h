@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2021-9-2
-
-#ifndef XOP_RTP_H
+﻿#ifndef XOP_RTP_H
 #define XOP_RTP_H
 
 #include <memory>

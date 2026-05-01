@@ -1,6 +1,3 @@
-// PHZ
-// 2019-10-18
-
 #include "EventLoop.h"
 
 #if defined(WIN32) || defined(_WIN32) 

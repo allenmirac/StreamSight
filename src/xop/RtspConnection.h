@@ -1,5 +1,4 @@
-﻿// PHZ
-// 2018-6-8
+﻿
 
 #ifndef _RTSP_CONNECTION_H
 #define _RTSP_CONNECTION_H

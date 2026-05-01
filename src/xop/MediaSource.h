@@ -1,5 +1,4 @@
-﻿// PHZ
-// 2018-6-8
+﻿
 
 #ifndef XOP_MEDIA_SOURCE_H
 #define XOP_MEDIA_SOURCE_H

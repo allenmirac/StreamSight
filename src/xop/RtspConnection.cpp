@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2018-6-10
-
-#include "RtspConnection.h"
+﻿#include "RtspConnection.h"
 #include "RtspServer.h"
 #include "MediaSession.h"
 #include "MediaSource.h"

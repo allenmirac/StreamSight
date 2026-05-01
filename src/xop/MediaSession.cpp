@@ -1,5 +1,4 @@
-﻿// PHZ
-// 2018-9-30
+﻿
 
 #include "MediaSession.h"
 #include "RtpConnection.h"

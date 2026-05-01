@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2018-5-16
-
-#ifndef XOP_AAC_SOURCE_H
+﻿#ifndef XOP_AAC_SOURCE_H
 #define XOP_AAC_SOURCE_H
 
 #include "MediaSource.h"

@@ -1,7 +1,4 @@
-﻿// PHZ
-// 2018-6-8
-
-#ifndef XOP_RTSP_MESSAGE_H
+﻿#ifndef XOP_RTSP_MESSAGE_H
 #define XOP_RTSP_MESSAGE_H
 
 #include <utility>
