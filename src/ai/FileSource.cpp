@@ -1,6 +1,7 @@
 // FileSource.cpp
 
 #include "FileSource.h"
+#include "observe/LatencyTracer.h"
 #include <iostream>
 
 namespace ai {
@@ -27,6 +28,7 @@ bool FileSource::IsOpened() const {
 }
 
 bool FileSource::GrabFrame(cv::Mat& frame) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "capture_frame");
     if (!cap_.isOpened()) return false;
 
     if (!cap_.read(frame) || frame.empty()) {

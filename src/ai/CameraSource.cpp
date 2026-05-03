@@ -1,6 +1,7 @@
 // CameraSource.cpp
 
 #include "CameraSource.h"
+#include "observe/LatencyTracer.h"
 #include <iostream>
 
 namespace ai {
@@ -37,6 +38,7 @@ bool CameraSource::IsOpened() const {
 }
 
 bool CameraSource::GrabFrame(cv::Mat& frame) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "capture_frame");
     if (!cap_.isOpened()) return false;
     return cap_.read(frame);
 }

@@ -1,4 +1,5 @@
 #include "control/StreamManager.h"
+#include "observe/LatencyTracer.h"
 #include <iostream>
 
 namespace control {
@@ -51,6 +52,7 @@ bool StreamManager::StartStream(StreamTask task) {
 
 void StreamManager::Dispatch(const std::shared_ptr<StreamContext>& ctx,
                              const std::shared_ptr<cdn_sim::EdgeNode>& node) {
+    STREAMSIGHT_LATENCY_SCOPE("control", "stream_manager_dispatch");
     ctx->node_id = node->Id();
     ctx->status = StreamStatus::Running;
 

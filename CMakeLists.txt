@@ -88,12 +88,14 @@ set(CDN_SIM_SRCS
 # Observe layer
 set(OBSERVE_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/observe/MetricsRegistry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/observe/LatencyTracer.cpp
 )
 
 # Common sources for all targets
 set(COMMON_SRCS
     ${NET_SRCS}
     ${XOP_SRCS}
+    ${OBSERVE_SRCS}
 )
 
 # Target 1: rtsp_server
@@ -132,7 +134,6 @@ add_executable(rtsp_edge_analysis_server
     ${AI_SRCS}
     ${CONTROL_SRCS}
     ${CDN_SIM_SRCS}
-    ${OBSERVE_SRCS}
 )
 target_link_libraries(rtsp_edge_analysis_server ${COMMON_LIBS})
 

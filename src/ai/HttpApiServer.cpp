@@ -3,6 +3,7 @@
 // Include httplib before any system headers to avoid macro conflicts
 #include "httplib.h"
 #include "HttpApiServer.h"
+#include "observe/LatencyTracer.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -112,12 +113,14 @@ bool HttpApiServer::Start() {
     // GET /api/status
     svr.Get("/api/status", [this](const httplib::Request&,
                                    httplib::Response& res) {
+        STREAMSIGHT_LATENCY_SCOPE("http", "http_request_total");
         res.set_content(StatusToJson(), "application/json");
     });
 
     // GET /api/current
     svr.Get("/api/current", [this](const httplib::Request&,
                                     httplib::Response& res) {
+        STREAMSIGHT_LATENCY_SCOPE("http", "http_request_total");
         std::lock_guard<std::mutex> lock(result_mutex_);
         res.set_content(ResultToJson(current_result_), "application/json");
     });
@@ -125,6 +128,7 @@ bool HttpApiServer::Start() {
     // GET /api/events?limit=100
     svr.Get("/api/events", [this](const httplib::Request& req,
                                    httplib::Response& res) {
+        STREAMSIGHT_LATENCY_SCOPE("http", "http_request_total");
         int limit = 100;
         if (req.has_param("limit")) {
             try { limit = std::stoi(req.get_param_value("limit")); }
@@ -136,6 +140,7 @@ bool HttpApiServer::Start() {
     // GET /api/faces
     svr.Get("/api/faces", [this](const httplib::Request&,
                                   httplib::Response& res) {
+        STREAMSIGHT_LATENCY_SCOPE("http", "http_request_total");
         if (!database_) {
             res.status = 503;
             res.set_content("{\"error\":\"No database\"}", "application/json");
@@ -155,6 +160,7 @@ bool HttpApiServer::Start() {
     // POST /api/faces  (multipart form: "name" + "image" file)
     svr.Post("/api/faces", [this](const httplib::Request& req,
                                    httplib::Response& res) {
+        STREAMSIGHT_LATENCY_SCOPE("http", "http_request_total");
         if (!database_ || !recognizer_) {
             res.status = 503;
             res.set_content("{\"error\":\"No database or recognizer\"}",
@@ -214,6 +220,78 @@ bool HttpApiServer::Start() {
         ss << "{\"ok\":" << (ok ? "true" : "false")
            << ",\"name\":\"" << EscJson(name) << "\"}";
         res.set_content(ss.str(), "application/json");
+    });
+
+    // GET /api/latency/stats
+    svr.Get("/api/latency/stats", [this](const httplib::Request&,
+                                         httplib::Response& res) {
+        auto stats = observe::LatencyTracer::Instance().GetStats();
+        std::ostringstream ss;
+        ss << "{";
+        bool first = true;
+        for (const auto& kv : stats) {
+            if (!first) ss << ',';
+            first = false;
+            const auto& s = kv.second;
+            // Compute percentiles from durations vector
+            std::vector<int64_t> d = s.durations;
+            std::sort(d.begin(), d.end());
+            auto pct = [&](double p) -> double {
+                if (d.empty()) return 0;
+                size_t idx = static_cast<size_t>(d.size() * p);
+                if (idx >= d.size()) idx = d.size() - 1;
+                return static_cast<double>(d[idx]) / 1000.0;
+            };
+            ss << "\"" << kv.first << "\":{"
+               << "\"count\":" << s.count
+               << ",\"avg_ms\":" << (s.count > 0 ? static_cast<double>(s.total_us) / s.count / 1000.0 : 0.0)
+               << ",\"min_ms\":" << static_cast<double>(s.min_us) / 1000.0
+               << ",\"max_ms\":" << static_cast<double>(s.max_us) / 1000.0
+               << ",\"p50_ms\":" << pct(0.50)
+               << ",\"p90_ms\":" << pct(0.90)
+               << ",\"p95_ms\":" << pct(0.95)
+               << ",\"p99_ms\":" << pct(0.99)
+               << ",\"total_ms\":" << static_cast<double>(s.total_us) / 1000.0
+               << "}";
+        }
+        ss << "}";
+        res.set_content(ss.str(), "application/json");
+    });
+
+    // GET /api/latency/recent?limit=100
+    svr.Get("/api/latency/recent", [this](const httplib::Request& req,
+                                          httplib::Response& res) {
+        int limit = 100;
+        if (req.has_param("limit")) {
+            try { limit = std::stoi(req.get_param_value("limit")); }
+            catch (...) {}
+        }
+        auto events = observe::LatencyTracer::Instance().GetRecentEvents(limit);
+        std::ostringstream ss;
+        ss << "[";
+        for (size_t i = 0; i < events.size(); ++i) {
+            if (i) ss << ',';
+            const auto& ev = events[i];
+            ss << "{"
+               << "\"timestamp_ms\":" << ev.timestamp_ms
+               << ",\"trace_id\":\"" << EscJson(ev.trace_id) << "\""
+               << ",\"stream_id\":\"" << EscJson(ev.stream_id) << "\""
+               << ",\"frame_id\":" << ev.frame_id
+               << ",\"module\":\"" << EscJson(ev.module) << "\""
+               << ",\"stage\":\"" << EscJson(ev.stage) << "\""
+               << ",\"event\":\"" << EscJson(ev.event) << "\""
+               << ",\"duration_us\":" << ev.duration_us
+               << "}";
+        }
+        ss << "]";
+        res.set_content(ss.str(), "application/json");
+    });
+
+    // POST /api/latency/reset
+    svr.Post("/api/latency/reset", [this](const httplib::Request&,
+                                          httplib::Response& res) {
+        observe::LatencyTracer::Instance().Reset();
+        res.set_content("{\"ok\":true}", "application/json");
     });
 
     running_ = true;

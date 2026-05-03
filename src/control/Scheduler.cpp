@@ -1,4 +1,5 @@
 #include "control/Scheduler.h"
+#include "observe/LatencyTracer.h"
 #include <limits>
 
 namespace control {
@@ -11,6 +12,7 @@ Scheduler::Scheduler(std::shared_ptr<cdn_sim::EdgeNodePool> pool,
 std::shared_ptr<cdn_sim::EdgeNode> Scheduler::SelectNode(
     const StreamTask& task,
     const std::string& exclude_node) const {
+    STREAMSIGHT_LATENCY_SCOPE("control", "scheduler_select");
     auto nodes = pool_->AllNodes();
 
     std::shared_ptr<cdn_sim::EdgeNode> best;

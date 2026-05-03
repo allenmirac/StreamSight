@@ -137,11 +137,11 @@ int main(int argc, char** argv) {
     while (!g_stop) {
         xop::Timer::Sleep(2000);
 
-        auto snap = metrics.Snapshot();
-        std::cout << "---- metrics snapshot ----" << std::endl;
-        for (const auto& kv : snap) {
-            std::cout << kv.first << " = " << kv.second << std::endl;
-        }
+        // auto snap = metrics.Snapshot();
+        // std::cout << "---- metrics snapshot ----" << std::endl;
+        // for (const auto& kv : snap) {
+        //     std::cout << kv.first << " = " << kv.second << std::endl;
+        // }
     }
 
     manager.StopAll();

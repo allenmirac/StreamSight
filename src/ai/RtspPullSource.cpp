@@ -1,6 +1,7 @@
 // RtspPullSource.cpp
 
 #include "RtspPullSource.h"
+#include "observe/LatencyTracer.h"
 #include <iostream>
 
 namespace ai {
@@ -30,6 +31,7 @@ bool RtspPullSource::IsOpened() const {
 }
 
 bool RtspPullSource::GrabFrame(cv::Mat& frame) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "rtsp_pull_receive");
     if (!cap_.isOpened()) return false;
     bool ok = cap_.read(frame);
     if (!ok || frame.empty()) {

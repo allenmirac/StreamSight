@@ -1,6 +1,7 @@
 // FrameAnalyzer.cpp
 
 #include "FrameAnalyzer.h"
+#include "observe/LatencyTracer.h"
 #include <chrono>
 
 namespace ai {
@@ -39,6 +40,8 @@ AnalysisResult FrameAnalyzer::Analyze(const cv::Mat& frame) {
 }
 
 AnalysisResult FrameAnalyzer::RunAnalysis(const cv::Mat& frame) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "frame_analyze_total");
+
     AnalysisResult result;
 
     // Timestamp

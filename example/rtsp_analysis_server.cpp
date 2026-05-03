@@ -63,8 +63,8 @@ static std::map<std::string, std::string> ParseArgs(int argc, char** argv) {
     args["port"]         = "554";
     args["http-port"]    = "8080";
     args["suffix"]       = "live";
-    args["detect-model"] = "../models/face_detection.onnx";
-    args["recog-model"]  = "../models/face_recognition.onnx";
+    args["detect-model"] = "./models/face_detection.onnx";
+    args["recog-model"]  = "./models/face_recognition.onnx";
     args["db"]           = "faces.json";
     args["log"]          = "events.jsonl";
     args["analyze-fps"]  = "5";

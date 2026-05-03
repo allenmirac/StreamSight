@@ -1,6 +1,7 @@
 // FaceDetector.cpp
 
 #include "FaceDetector.h"
+#include "observe/LatencyTracer.h"
 #include <iostream>
 #include <algorithm>
 
@@ -34,6 +35,7 @@ bool FaceDetector::Load() {
 }
 
 std::vector<FaceBox> FaceDetector::Detect(const cv::Mat& frame) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "face_detection");
     if (!loaded_ || frame.empty()) return {};
 
     // Build blob: 1×3×H×W, mean subtracted, BGR order

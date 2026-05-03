@@ -1,6 +1,7 @@
 // FrameOverlay.cpp
 
 #include "FrameOverlay.h"
+#include "observe/LatencyTracer.h"
 #include <sstream>
 #include <iomanip>
 
@@ -10,6 +11,7 @@ FrameOverlay::FrameOverlay() {}
 FrameOverlay::FrameOverlay(Style style) : style_(std::move(style)) {}
 
 void FrameOverlay::Draw(cv::Mat& frame, const AnalysisResult& result) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "frame_overlay");
     for (const auto& face : result.faces) {
         DrawFace(frame, face);
     }

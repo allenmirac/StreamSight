@@ -5,6 +5,7 @@
 //   delivering one NAL unit per callback invocation.
 
 #include "H264Encoder.h"
+#include "observe/LatencyTracer.h"
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -201,6 +202,7 @@ bool H264Encoder::requiresYUV() const {
 }
 
 bool H264Encoder::EncodeFrame(const cv::Mat& frame) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "h264_encode");
     if (!opened_ || impl_->write_fd < 0) return false;
     if (frame.cols != width_ || frame.rows != height_ ||
         frame.type() != CV_8UC3) {

@@ -1,6 +1,7 @@
 ﻿#include "RtpConnection.h"
 #include "RtspConnection.h"
 #include "net/SocketUtil.h"
+#include "observe/LatencyTracer.h"
 
 using namespace std;
 using namespace xop;
@@ -281,6 +282,7 @@ int RtpConnection::SendRtpOverTcp(MediaChannelId channel_id, RtpPacket pkt)
 
 int RtpConnection::SendRtpOverUdp(MediaChannelId channel_id, RtpPacket pkt)
 {
+    STREAMSIGHT_LATENCY_SCOPE("xop", "rtp_send");
 	int ret = sendto(rtpfd_[channel_id], (const char*)pkt.data.get()+4, pkt.size-4, 0,
 					(struct sockaddr *)&(peer_rtp_addr_[channel_id]), sizeof(struct sockaddr_in));
                    

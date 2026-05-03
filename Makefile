@@ -54,6 +54,10 @@ OBJS6 = $(patsubst %.cpp,$(OBJS_PATH)/%.o,$(SRC6))
 SRC7  = $(notdir $(wildcard ./example/rtsp_analysis_server.cpp))
 OBJS7 = $(patsubst %.cpp,$(OBJS_PATH)/%.o,$(SRC7))
 
+# ── Observe layer ──────────────────────────────────────────────────────────────
+SRC8  = $(notdir $(wildcard ./src/observe/*.cpp))
+OBJS8 = $(patsubst %.cpp,$(OBJS_PATH)/%.o,$(SRC8))
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 all: BUILD_DIR $(TARGET1) $(TARGET2) $(TARGET3) $(TARGET4)
 
@@ -61,17 +65,17 @@ BUILD_DIR:
 	@-mkdir -p $(OBJS_PATH)
 	@-mkdir -p $(BIN_PATH)
 
-$(TARGET1) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS3)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS3) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
+$(TARGET1) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS3) $(OBJS8)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS3) $(OBJS8) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
 
-$(TARGET2) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS4)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS4) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
+$(TARGET2) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS4) $(OBJS8)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS4) $(OBJS8) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
 
-$(TARGET3) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS5)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS5) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
+$(TARGET3) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS5) $(OBJS8)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS5) $(OBJS8) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS)
 
-$(TARGET4) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS6) $(OBJS7)
-	$(CXX) $(OBJS1) $(OBJS2) $(OBJS6) $(OBJS7) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS) $(LIB)
+$(TARGET4) : BUILD_DIR $(OBJS1) $(OBJS2) $(OBJS6) $(OBJS7) $(OBJS8)
+	$(CXX) $(OBJS1) $(OBJS2) $(OBJS6) $(OBJS7) $(OBJS8) -o bin/$@ $(CFLAGS) $(LD_FLAGS) $(CXX_FLAGS) $(LIB)
 
 # ── Compile rules ─────────────────────────────────────────────────────────────
 $(OBJS_PATH)/%.o : ./example/%.cpp
@@ -81,6 +85,8 @@ $(OBJS_PATH)/%.o : ./src/net/%.cpp
 $(OBJS_PATH)/%.o : ./src/xop/%.cpp
 	$(CXX) -c  $< -o  $@  $(CXX_FLAGS) $(INC)
 $(OBJS_PATH)/%.o : ./src/ai/%.cpp
+	$(CXX) -c  $< -o  $@  $(CXX_FLAGS) $(INC)
+$(OBJS_PATH)/%.o : ./src/observe/%.cpp
 	$(CXX) -c  $< -o  $@  $(CXX_FLAGS) $(INC)
 
 clean:

@@ -3,6 +3,7 @@
 
 #include "FaceDatabase.h"
 #include "FaceRecognizer.h"
+#include "observe/LatencyTracer.h"
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -164,6 +165,7 @@ bool FaceDatabase::Remove(const std::string& name) {
 }
 
 FaceMatch FaceDatabase::Query(const std::vector<float>& embedding) const {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "face_database_search");
     std::lock_guard<std::mutex> lock(mutex_);
     FaceMatch best{"unknown", -1.0f, false};
     for (const auto& e : entries_) {

@@ -1,4 +1,5 @@
 #include "cdn_sim/EdgeNode.h"
+#include "observe/LatencyTracer.h"
 #include <algorithm>
 
 namespace cdn_sim {
@@ -106,6 +107,7 @@ double EdgeNode::Score(const control::StreamTask& task,
 }
 
 bool EdgeNode::Submit(const control::StreamTask& task, std::function<void()> fn) {
+    STREAMSIGHT_LATENCY_SCOPE("cdn_sim", "edge_node_enqueue");
     if (status_ == NodeStatus::Down) return false;
 
     ++active_streams_;

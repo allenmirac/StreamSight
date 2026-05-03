@@ -1,4 +1,5 @@
 #include "control/PipelineRunner.h"
+#include "observe/LatencyTracer.h"
 
 #include "ai/CameraSource.h"
 #include "ai/EventLogger.h"
@@ -110,6 +111,8 @@ PipelineResult PipelineRunner::Run(std::atomic<bool>& stop_flag) {
     double latency_acc = 0.0;
 
     while (!stop_flag.load()) {
+        STREAMSIGHT_LATENCY_SCOPE_WITH_IDS("control", "pipeline_run",
+                                           task_.stream_id, frame_count);
         auto t0 = steady_clock::now();
 
         if (!source->GrabFrame(frame)) {

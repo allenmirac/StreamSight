@@ -1,6 +1,7 @@
 // FaceRecognizer.cpp
 
 #include "FaceRecognizer.h"
+#include "observe/LatencyTracer.h"
 #include <cmath>
 #include <iostream>
 #include <numeric>
@@ -27,6 +28,7 @@ bool FaceRecognizer::Load() {
 }
 
 std::vector<float> FaceRecognizer::Extract(const cv::Mat& face) {
+    STREAMSIGHT_LATENCY_SCOPE("ai", "face_recognition");
     if (!loaded_ || face.empty()) return {};
 
     cv::Mat resized;
