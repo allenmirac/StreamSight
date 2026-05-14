@@ -8,16 +8,20 @@
 - GCC 7+ (支持 C++11)
 - FFmpeg（用于 H.264 编码）
 - OpenCV 4.x（含 DNN 模块）
+- CMake 3.10+（CMake 构建可选）
 
 ### 安装依赖
 
 ```bash
 # 基础构建工具
 sudo apt update
-sudo apt install -y build-essential pkg-config
+sudo apt install -y build-essential pkg-config cmake
 
 # FFmpeg（H.264 编码必需）
 sudo apt install -y ffmpeg
+
+# FFmpeg 开发库（ffmpeg_streamer 目标需要）
+sudo apt install -y libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
 
 # OpenCV 4（含 DNN 模块）
 sudo apt install -y libopencv-dev
@@ -68,12 +72,10 @@ wget -O models/face_recognition.onnx \
 
 ## 3. 编译
 
-```bash
-# 克隆（若尚未克隆）
-git clone <repo_url>
-cd RtspServer
+### Make 构建（主要方式）
 
-# 编译所有目标（包含 rtsp_analysis_server）
+```bash
+# 编译所有目标
 make -j$(nproc)
 
 # 仅编译 AI 分析服务器
@@ -83,14 +85,26 @@ make rtsp_analysis_server -j$(nproc)
 make V=1 -j$(nproc)
 ```
 
-编译产物：
+### CMake 构建（需要 FFmpeg 开发库）
 
+```bash
+mkdir -p build && cd build
+cmake .. && make -j$(nproc)
+# 编译产物在 build/bin/
 ```
-rtsp_server            # 原有基础服务器
-rtsp_pusher            # 原有推流工具
-rtsp_h264_file         # 原有文件推流
-rtsp_analysis_server   # 新增 AI 分析服务器
-```
+
+CMake 构建会自动检测 FFmpeg 开发库，若未安装则跳过 `ffmpeg_streamer` 目标。
+
+### 编译产物
+
+| 目标 | 说明 |
+|------|------|
+| `rtsp_server` | 基础 RTSP 服务器 |
+| `rtsp_pusher` | RTSP 推流工具 |
+| `rtsp_h264_file` | H.264 文件推流 |
+| `rtsp_analysis_server` | AI 分析服务器 |
+| `rtsp_edge_analysis_server` | CDN 边缘调度服务器 |
+| `ffmpeg_streamer` | FFmpeg C API 管线（音视频 + RTMP） |
 
 ---
 
@@ -138,6 +152,24 @@ rtsp_analysis_server   # 新增 AI 分析服务器
   --source file --input test.h264 \
   --no-ai --port 8554
 ```
+
+### 模式四：FFmpeg C API 管线（音视频 + RTMP）
+
+```bash
+# 基础 RTSP 推流（含音频）
+./ffmpeg_streamer --input test.h264 --port 8554
+
+# RTSP + RTMP 双输出
+./ffmpeg_streamer --input test.h264 --rtmp rtmp://localhost/live/test --port 8554
+
+# USB 摄像头（含 AI）
+./ffmpeg_streamer --source camera --input 0 --port 8554
+
+# 跳过 AI
+./ffmpeg_streamer --input test.h264 --no-ai --port 8554
+```
+
+支持参数：`--source`、`--input`、`--width`、`--height`、`--fps`、`--bitrate`、`--threads`、`--rtmp`、`--no-ai`、`--analyze-fps`、`--suffix`、`--http-port`。
 
 ---
 

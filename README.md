@@ -22,9 +22,11 @@ VideoSource → AI Analysis → Frame Overlay → H.264 Encode → RTSP/RTP → 
 
 **Streaming**
 - RTSP server and pusher based on Reactor (epoll on Linux, select on Windows)
-- H.264 / H.265 / G711A / AAC codec support
+- H.264 / H.265 / G711A / AAC / VP8 codec support
+- Audio+video streaming (AAC audio integrated in ffmpeg_streamer)
 - Unicast (RTP over TCP, RTP over UDP) and multicast
 - Digest authentication (RFC 2617)
+- RTCP Sender Report (SR) — periodic NTP/RTP timestamp mapping for latency measurement
 
 **AI Analysis** *(requires OpenCV 4 + FFmpeg)*
 - Face detection via OpenCV DNN (YuFaceDetectNet / RetinaFace ONNX)
@@ -34,6 +36,7 @@ VideoSource → AI Analysis → Frame Overlay → H.264 Encode → RTSP/RTP → 
 
 **Output**
 - RTSP stream with real-time annotations
+- RTMP push (via FFmpeg C API pipeline)
 - REST HTTP API for querying current detections and event history
 - JSON Lines event log (`events.jsonl`)
 
@@ -44,14 +47,35 @@ VideoSource → AI Analysis → Frame Overlay → H.264 Encode → RTSP/RTP → 
 ### Dependencies
 
 ```bash
+# Runtime + AI
 sudo apt install libopencv-dev ffmpeg
+# FFmpeg C API pipeline (for ffmpeg_streamer target)
+sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
 ```
 
 ### Build
 
 ```bash
-make -j$(nproc)          # builds all targets including rtsp_analysis_server
+# Make (primary)
+make -j$(nproc)
+
+# CMake (alternative, required for ffmpeg_streamer)
+mkdir -p build && cd build
+cmake .. && make -j$(nproc)
 ```
+
+Build outputs go to `bin/` (Make) or `build/bin/` (CMake).
+
+### Targets
+
+| Target | Description |
+|--------|-------------|
+| `rtsp_server` | Basic RTSP server |
+| `rtsp_pusher` | RTSP pusher (push to upstream server) |
+| `rtsp_h264_file` | Serve H.264 file over RTSP |
+| `rtsp_analysis_server` | Full pipeline: video source + AI + overlay + RTSP |
+| `rtsp_edge_analysis_server` | CDN edge-scheduling prototype |
+| `ffmpeg_streamer` | FFmpeg C API pipeline (demux→decode→AI→encode→RTSP/RTMP, audio+video) |
 
 ### Download AI Models
 
@@ -79,6 +103,10 @@ wget -O models/face_recognition.onnx \
 
 # Encode only, skip AI
 ./rtsp_analysis_server --source file --input test.h264 --no-ai --port 8554
+
+# FFmpeg C API pipeline (audio+video, RTMP support)
+./ffmpeg_streamer --input test.h264 --port 8554
+./ffmpeg_streamer --input test.h264 --rtmp rtmp://localhost/live/test --port 8554
 ```
 
 ### Watch & Query
@@ -101,18 +129,33 @@ curl -X POST http://localhost:8080/api/faces \
 ```
 src/
 ├── net/      Reactor networking (EventLoop, epoll, Channel, TcpServer)
-├── xop/      RTSP/RTP protocol layer (RtspServer, MediaSession, H264Source)
-└── ai/       AI analysis pipeline (VideoSource, FaceDetector, H264Encoder, …)
+├── xop/      RTSP/RTP protocol (RtspServer, MediaSession, H264Source, H265Source,
+│             AACSource, G711ASource, VP8Source, RtcpMessage, SeiLatencyMarker)
+├── ai/       AI analysis pipeline (VideoSource, FaceDetector, FaceRecognizer,
+│             FaceDatabase, FrameAnalyzer, FrameOverlay, H264Encoder, HttpApiServer)
+├── ffmpeg/   FFmpeg C API pipeline (FFmpegStreamer, RtspOutputAdapter,
+│             RtmpOutputAdapter, MultiOutputAdapter, AudioOutputAdapter)
+├── control/  Control plane (Classifier, Scheduler, PipelineRunner, StreamManager)
+├── cdn_sim/  Edge node simulation (EdgeNode, EdgeNodePool, ThreadPool)
+├── observe/  MetricsRegistry, LatencyTracer
+└── 3rdpart/  cpp-httplib (HTTP), md5
 example/
-├── rtsp_server.cpp             Basic RTSP server
-├── rtsp_h264_file.cpp          File streaming example
-└── rtsp_analysis_server.cpp    Full AI analysis pipeline
+├── rtsp_server.cpp                Basic RTSP server
+├── rtsp_pusher.cpp                RTSP pusher
+├── rtsp_h264_file.cpp             File streaming example
+├── rtsp_analysis_server.cpp       Full AI analysis pipeline
+├── rtsp_edge_analysis_server.cpp  CDN edge-scheduling prototype
+└── ffmpeg_streamer.cpp            FFmpeg C API pipeline (audio+video, RTMP)
 docs/
-├── architecture.md             System diagram and data flow
-├── api.md                      REST API reference
-├── setup.md                    Installation and run guide
-└── interview.md                Technical deep-dive Q&A
-models/                         ONNX model files (download separately)
+├── StreamSight项目架构说明文档.md   Architecture (Chinese)
+├── StreamSight项目深度分析与优化方案.md  Optimization analysis
+├── StreamSight现有系统延迟测试方案.md    Latency testing plan
+├── cdn_sim_design.md               CDN simulation design
+├── api.md                          REST API reference
+├── setup.md                        Installation and run guide
+├── interview.md                    Technical deep-dive Q&A
+└── latency_testing_implementation.md  Latency tracer implementation
+models/                             ONNX model files (download separately)
 ```
 
 ---
@@ -138,7 +181,8 @@ Full documentation: [docs/api.md](docs/api.md)
 |-----------|---------|
 | Compiler | GCC 4.8+ / VS2015+ (C++11) |
 | OpenCV | 4.x with DNN module |
-| FFmpeg | 4.x (`ffmpeg` binary in PATH) |
+| FFmpeg | 4.x+ (`ffmpeg` binary; libavformat/libavcodec/libavutil/libswscale dev for ffmpeg_streamer) |
+| CMake | 3.10+ (for CMake build / ffmpeg_streamer target) |
 | OS | Linux (epoll) / Windows (select) |
 
 ---

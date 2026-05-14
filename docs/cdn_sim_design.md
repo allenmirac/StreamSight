@@ -345,7 +345,7 @@ score =
 2. 没有真实的 CDN 缓存 / 回源 / 切片缓存逻辑  
 3. failover 是重启式而非无缝迁移  
 4. 当前可观测性仍以内存指标为主，尚未接入 Prometheus  
-5. 当前输出主要围绕 RTSP，尚未完整补齐 HLS/RTMP/录制
+5. 当前输出主要围绕 RTSP（RTMP 已通过 ffmpeg_streamer 实现），尚未完整补齐 HLS/录制
 
 这些局限在项目介绍中应主动说明，这样既真实，也更能体现你对系统边界的认识。
 
@@ -356,7 +356,7 @@ score =
 ### 9.1 媒体能力扩展
 - MP4 录制
 - HLS 切片输出
-- RTMP 推流
+- RTMP 推流（已实现：`ffmpeg_streamer` 支持 RTMP 输出）
 - 多档转码 profile
 
 ### 9.2 控制平面扩展

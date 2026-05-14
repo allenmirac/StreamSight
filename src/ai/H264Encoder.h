@@ -48,7 +48,8 @@ public:
      * @param fps      Output frame rate.
      * @param bitrate  Target bitrate in bps (default 2 Mbps).
      */
-    H264Encoder(int width, int height, double fps, int bitrate = 2000000);
+    H264Encoder(int width, int height, double fps, int bitrate = 2000000,
+                int ffmpeg_threads = 2);
     ~H264Encoder();
 
     /**
@@ -56,6 +57,9 @@ public:
      *  The callback is called synchronously inside EncodeFrame().
      */
     void SetOutputCallback(FrameCallback cb) { callback_ = std::move(cb); }
+
+    /** @brief Set number of threads for the FFmpeg child process. Default 2. */
+    void SetFFmpegThreads(int n) { ffmpeg_threads_ = n; }
 
     /** @brief Open encoder resources. Must be called before EncodeFrame(). */
     bool Open();
@@ -82,6 +86,7 @@ private:
     int           height_;
     double        fps_;
     int           bitrate_;
+    int           ffmpeg_threads_;
     bool          opened_ = false;
     FrameCallback callback_;
 

@@ -123,9 +123,8 @@ bool AACSource::HandleFrame(MediaChannelId channel_id, AVFrame frame)
 
 uint32_t AACSource::GetTimestamp(uint32_t sampleRate)
 {
-	//auto time_point = chrono::time_point_cast<chrono::milliseconds>(chrono::high_resolution_clock::now());
-	//return (uint32_t)(time_point.time_since_epoch().count() * sampleRate / 1000);
-
+	// Wall-clock microseconds → RTP clock ticks at sampleRate Hz.
+	// Multiply first to preserve precision.
 	auto time_point = chrono::time_point_cast<chrono::microseconds>(chrono::steady_clock::now());
-	return (uint32_t)((time_point.time_since_epoch().count()+500) / 1000 * sampleRate / 1000);
+	return (uint32_t)(time_point.time_since_epoch().count() * sampleRate / 1000000);
 }

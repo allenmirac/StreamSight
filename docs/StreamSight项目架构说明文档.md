@@ -24,12 +24,13 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 | 层次 | 目录 | 职责 |
 |------|------|------|
 | 网络通信层 | `src/net/` | 提供基于 Reactor 模式的异步事件驱动网络框架，封装 epoll/select、TCP 连接管理、定时器和内存管理 |
-| RTSP 流媒体层 | `src/xop/` | 实现 RTSP/RTP 协议栈，包括服务端、推流端、媒体会话管理、多种编码格式的媒体源封装 |
+| RTSP 流媒体层 | `src/xop/` | 实现 RTSP/RTP/RTCP 协议栈，包括服务端、推流端、媒体会话管理、多种编码格式的媒体源封装、RTCP SR 发送和 SEI 延迟标记注入 |
 | AI 分析层 | `src/ai/` | 提供多类型视频源接入、人脸检测与识别、帧分析调度、画面叠加绘制、H.264 软编码、事件日志和 HTTP API 服务 |
+| FFmpeg 管线层 | `src/ffmpeg/` | 提供基于 FFmpeg C API 的进程内媒体管线：解封装→解码→AI 回调→编码→多输出（RTSP/RTMP），支持音视频混合 |
 | 控制调度层 | `src/control/` | 定义流任务抽象，实现流分类、加权评分调度、流水线执行编排和故障切换逻辑 |
 | CDN 模拟层 | `src/cdn_sim/` | 模拟异构边缘节点及其线程池，提供节点接纳判断、负载评分和能力匹配计算 |
-| 可观测性层 | `src/observe/` | 提供线程安全的内存键值指标注册与快照导出 |
-| 示例程序层 | `example/` | 包含不同场景的入口程序，覆盖基础 RTSP 服务、推流、AI 分析服务和边缘调度服务 |
+| 可观测性层 | `src/observe/` | 提供线程安全的内存键值指标注册与快照导出（MetricsRegistry），以及基于 RAII 的延迟追踪（LatencyTracer） |
+| 示例程序层 | `example/` | 包含不同场景的入口程序，覆盖基础 RTSP 服务、推流、AI 分析服务、边缘调度服务和 FFmpeg C API 管线 |
 
 ### 2.2 模块调用关系
 
@@ -49,12 +50,12 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 |------|------|------|
 | `CLAUDE.md` | 文件 | 面向 Claude Code 的项目指南，包含构建命令、运行示例和架构概述 |
 | `CMakeLists.txt` | 文件 | CMake 构建配置，支持 GCC/MinGW，自动查找 OpenCV 依赖 |
-| `Makefile` | 文件 | GNU Make 构建配置（主要构建方式），定义 5 个构建目标及其依赖关系 |
+| `Makefile` | 文件 | GNU Make 构建配置（主要构建方式），定义 6 个构建目标及其依赖关系 |
 | `README.md` / `README_CN.md` | 文件 | 中英文项目说明，含功能介绍、快速开始指南和目录结构 |
 | `LICENSE` | 文件 | MIT 开源许可证 |
 | `docs/` | 目录 | 项目文档，含架构说明、API 接口文档、安装指南和技术问答 |
-| `example/` | 目录 | 5 个入口程序源文件，覆盖不同使用场景 |
-| `src/` | 目录 | 全部库和模块源码，按功能分为 7 个子目录 |
+| `example/` | 目录 | 6 个入口程序源文件，覆盖不同使用场景 |
+| `src/` | 目录 | 全部库和模块源码，按功能分为 8 个子目录（新增 ffmpeg/） |
 | `models/` | 目录 | AI 模型文件存放目录，需单独下载 ONNX 模型 |
 | `pic/` | 目录 | 测试用媒体资源（图片、视频文件） |
 | `bin/` | 目录 | 编译产物输出目录，运行时的工作目录 |
@@ -115,6 +116,8 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 - `H264Source` 和 `H264Parser` 负责 H.264 码流的封装、SPS/PPS 解析和时间戳管理。
 - `H265Source` 提供 H.265/HEVC 码流的 RTSP 封装支持。
 - `AACSource`、`G711ASource` 和 `VP8Source` 分别提供 AAC 音频、G.711A 音频和 VP8 视频格式的支持。
+- `RtcpMessage` 实现 RTCP Sender Report (SR) 报文的构建与 NTP 时间戳生成，`RtpConnection` 每 5 秒周期性发送 SR，提供 NTP↔RTP 时间戳映射供客户端计算延迟。
+- `SeiLatencyMarker` 提供 H.264 SEI NAL 单元的注入工具，可在 IDR 帧前嵌入发送端时间戳，用于跨机器延迟测量。
 
 **媒体会话管理**
 
@@ -153,7 +156,16 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 - `EventLogger` 以 JSON Lines 格式将检测事件写入 `events.jsonl` 文件，每条事件包含时间戳、帧序号和人脸列表。
 - `HttpApiServer` 基于 cpp-httplib 库提供 REST API 服务，支持查询当前帧分析结果、历史事件列表、人脸库管理（增删查）和服务状态。
 
-### 4.4 控制调度模块（src/control）
+### 4.4 FFmpeg C API 管线模块（src/ffmpeg）
+
+该模块基于 FFmpeg C API（libavformat / libavcodec / libavutil / libswscale）实现了进程内媒体管线，替代了旧有的 fork/pipe FFmpeg 子进程方案。
+
+- `FFmpegStreamer` 是核心管线类，完成解封装→视频解码→BGR 转换→AI 回调→YUV 转换→编码→多输出的全流程。支持视频和音频双轨处理：音频包被解码后通过回调推入 RTSP 音频通道。
+- `StreamerConfig` 统一配置输入源、编码参数（libx264 preset/tune/bitrate/GOP）、输出适配器列表和 AI/音频回调。
+- `IOutputAdapter` 是输出适配器的抽象接口，`RtspOutputAdapter` 将编码帧推入 RTSP 会话，`RtmpOutputAdapter` 通过 RTMP 推流，`MultiOutputAdapter` 支持多路同时输出。
+- `AudioOutputAdapter` 将 FFmpeg 解码的 PCM 音频帧构建为 `xop::AVFrame` 并推入 RTSP 音频通道（channel_1），实现音视频混合推流。
+
+### 4.5 控制调度模块（src/control）
 
 该模块构建在数据平面之上，将单路流媒体处理管线抽象为可调度的流任务，实现了流分类、节点选择和故障切换的控制逻辑。
 
@@ -172,7 +184,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 - `StreamManager` 是控制平面的总协调器。它持有统一的 RTSP 服务端，接收 `StartStream` 请求后，先调用分类器打标签，再调用调度器选节点，最后将任务分发到目标边缘节点执行。它还负责故障切换：当 `PipelineRunner` 返回失败状态时，排除当前节点重新调度。
 - `PipelineRunner` 在边缘节点的工作线程中执行完整的媒体处理管线（采集、AI 分析、编码、RTSP 推流），封装了原 `rtsp_analysis_server` 的全部逻辑。
 
-### 4.5 CDN 边缘模拟模块（src/cdn_sim）
+### 4.6 CDN 边缘模拟模块（src/cdn_sim）
 
 该模块在单进程内模拟具有不同算力等级的边缘节点，为调度器提供异构的计算资源抽象。
 
@@ -182,9 +194,10 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 该模块的价值在于：不需要真实的多机部署环境，即可在单机内验证就近分发、负载均衡和故障切换等 CDN 调度策略的有效性。
 
-### 4.6 可观测性模块（src/observe）
+### 4.7 可观测性模块（src/observe）
 
 - `MetricsRegistry` 是一个线程安全的内存键值指标注册表，支持整型和浮点型指标的自增、赋值和读取。通过互斥锁保证多线程环境下的数据一致性，提供 `Snapshot()` 方法导出当前全部指标的键值对快照。
+- `LatencyTracer` 是基于 RAII 的延迟追踪系统，通过 `LATENCY_TRACE_SCOPE(name)` 宏在关键模块入口/出口自动记录耗时。数据以 JSONL 格式输出，支持环境变量开关控制（零性能开销），配套 Python 分析脚本计算 avg/p50/p95/p99/max/jitter。
 
 当前采集的指标覆盖三个维度：流级指标（pipeline 延迟、帧计数、failover 次数）、节点级指标（活跃流数、调度次数、平均延迟）和调度级指标（调度总次数、failover 总次数）。
 
@@ -199,6 +212,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 | `rtsp_h264_file` | `example/rtsp_h264_file.cpp` | 本地 H.264 文件推流示例，读取 H.264 裸流文件并通过 RTSP 分发 |
 | `rtsp_analysis_server` | `example/rtsp_analysis_server.cpp` | 完整 AI 分析管线入口，整合视频源、人脸检测识别、画面叠加、编码和 RTSP 分发，支持三种输入模式和 HTTP API 服务 |
 | `rtsp_edge_analysis_server` | `example/rtsp_edge_analysis_server.cpp` | CDN 边缘调度原型入口，在分析管线之上增加流任务分类、多节点调度和故障切换能力 |
+| `ffmpeg_streamer` | `example/ffmpeg_streamer.cpp` | FFmpeg C API 管线入口，实现进城内解封装→解码→AI 回调→编码→RTSP/RTMP 输出，支持音视频混合推流 |
 
 ---
 
@@ -282,7 +296,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 7. **测试体系补充**：当前缺少单元测试和集成测试，可引入 Google Test 框架覆盖核心模块。
 8. **Docker 化部署**：编写 Dockerfile 和 docker-compose，实现一键构建和运行，降低环境搭建成本。
 9. **CI/CD 构建流程完善**：接入 GitHub Actions 或 Jenkins，实现自动化编译、测试和发布。
-10. **录制与多协议输出**：当前仅支持 RTSP 输出，可扩展 MP4 录制、HLS 切片输出和 RTMP 推流能力。
+10. **录制与多协议输出**：当前支持 RTSP 和 RTMP 输出（ffmpeg_streamer），可扩展 MP4 录制和 HLS 切片输出能力。
 
 ---
 

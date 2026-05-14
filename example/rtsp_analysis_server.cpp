@@ -222,7 +222,12 @@ int main(int argc, char** argv) {
     sigaction(SIGINT, &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGQUIT, &sa, nullptr);
-    
+
+    // Limit concurrency to avoid core contention between FFmpeg and OpenCV threads.
+    cv::setNumThreads(2);
+    ::setenv("OMP_NUM_THREADS", "2", 1);
+    ::setenv("OPENCV_THREADS", "2", 1);
+
     std::cout << "[Main] Starting rtsp_analysis_server (fixed version)" << std::endl;
     
     auto args    = ParseArgs(argc, argv);

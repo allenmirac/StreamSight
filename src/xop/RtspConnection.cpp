@@ -201,21 +201,31 @@ void RtspConnection::SendRtspMessage(std::shared_ptr<char> buf, uint32_t size)
 }
 
 void RtspConnection::HandleRtcp(BufferReader& buffer)
-{    
+{
+	// TCP interleaved RTCP: $ + channel + length + RTCP compound packet
 	char *peek = buffer.Peek();
 	if(peek[0] == '$' &&  buffer.ReadableBytes() > 4) {
 		uint32_t pkt_size = peek[2]<<8 | peek[3];
-		if(pkt_size +4 >=  buffer.ReadableBytes()) {
-			buffer.Retrieve(pkt_size +4);  
+		if(pkt_size + 4 <= buffer.ReadableBytes()) {
+			// RTCP data at peek+4, size=pkt_size
+			// Could parse SR (PT=200) or RR (PT=201) here
+			// For now, keep the session alive and log presence
+			buffer.Retrieve(pkt_size + 4);
+			KeepAlive();
 		}
 	}
 }
- 
+
 void RtspConnection::HandleRtcp(SOCKET sockfd)
 {
-	char buf[1024] = {0};
-	if(recv(sockfd, buf, 1024, 0) > 0) {
+	uint8_t buf[1500];
+	ssize_t n = recv(sockfd, buf, sizeof(buf), 0);
+	if (n > 0) {
 		KeepAlive();
+		// Parse RTCP compound packet if needed:
+		// RtcpHeader* hdr = (RtcpHeader*)buf;
+		// if (hdr->version == 2 && hdr->pt == 200) { ... SR ... }
+		// if (hdr->version == 2 && hdr->pt == 201) { ... RR ... }
 	}
 }
 

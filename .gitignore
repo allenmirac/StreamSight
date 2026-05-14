@@ -48,6 +48,9 @@ bin/
 *.mp4
 .vscode
 .cline
+.claude
+*.jsonl
+*.json
 CLAUDE.md
 build
 runtime

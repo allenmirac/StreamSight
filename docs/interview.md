@@ -170,18 +170,24 @@ cv::Mat(BGR) → [AI分析+叠加] → H264Encoder → xop::AVFrame → PushFram
 
 ### Q11：H264Encoder 是如何实现的？为什么用 fork/pipe 而不是直接用 FFmpeg 库？
 
-**答：** `H264Encoder` 通过 `fork()` + `exec()` 启动 FFmpeg 子进程，用两个匿名管道通信：
+**答：** 项目同时提供了两套编码路径：
+
+**路径一：`H264Encoder`（fork/pipe，rtsp_analysis_server 使用）**
+
+通过 `fork()` + `exec()` 启动 FFmpeg 子进程，用两个匿名管道通信：
 
 ```
 父进程（write）─── stdin_pipe ──▶ ffmpeg -f rawvideo ... -f h264 pipe:1
 父进程（read）  ◀── stdout_pipe── ffmpeg 输出 H.264 Annex-B
 ```
 
-**为什么不直接链接 libavcodec？**
+优点：依赖隔离（无需 libavcodec-dev）、子进程崩溃不影响主进程、编译简单。
 
-1. **依赖隔离**：libavcodec 是 LGPL/GPL 许可，静态链接有许可合规问题；子进程模式完全隔离。
-2. **编译简单**：项目用 `apt install ffmpeg` 即可，无需安装 `libavcodec-dev` 并处理复杂的 FFmpeg API（`AVCodecContext`、`AVPacket`、`avcodec_send_frame` 等）。
-3. **稳定性**：子进程崩溃不影响主进程；可通过重启子进程恢复。
+**路径二：`FFmpegStreamer`（FFmpeg C API，ffmpeg_streamer 使用）**
+
+直接链接 libavcodec / libavformat / libavutil / libswscale，实现进程内管线：demux → decode → AI callback → YUV convert → encode → multi-output（RTSP/RTMP）。优势：消除进程通信开销、支持音视频混合、支持 RTMP 输出。
+
+两条路径共存，`rtsp_analysis_server` 走旧路径保证兼容，`ffmpeg_streamer` 走新路径提供完整能力。
 
 **管道读取端（后台线程）**解析 Annex-B 流：通过扫描 `00 00 00 01` 起始码切分 NAL 单元，逐个调用回调，交给 `RtspServer::PushFrame`。
 
@@ -341,7 +347,7 @@ PushFrame      ~0.1ms（锁 + 内存拷贝）
    ```
    采集与编码不再等待 AI 完成，AI 分析结果滞后 1~2 帧叠加。
 
-3. **H264Encoder**：pipe 存在两次内存拷贝（父→pipe→ffmpeg），可改为 `libx264` 直接调用消除跨进程通信。
+3. **H264Encoder**：pipe 存在两次内存拷贝（父→pipe→ffmpeg），已通过 `FFmpegStreamer`（FFmpeg C API 直接调用）消除跨进程通信开销，同时支持音视频混合和 RTMP 输出。
 
 4. **RTP 发送**：当前 `sendto` 逐包发送，高并发时可使用 `sendmmsg`（Linux）批量发送。
 
@@ -423,7 +429,7 @@ Access-Control-Allow-Origin: *
 
 ### Q25：项目中存在哪些可以改进的设计缺陷？
 
-1. **H264Encoder 的 FIFO/pipe 方案**：fork+exec 存在进程启动开销（约 50ms），若 FFmpeg 崩溃无自动重启机制。改进：直接链接 `libx264` 或使用 `libavcodec`。
+1. **H264Encoder 的 FIFO/pipe 方案**：fork+exec 存在进程启动开销（约 50ms），若 FFmpeg 崩溃无自动重启机制。已提供改进方案：`FFmpegStreamer`（`src/ffmpeg/`）直接链接 libavcodec/libavformat，实现进程内管线，消除进程开销并支持 RTMP 输出和音视频混合。
 
 2. **`FrameAnalyzer` 串行流水线**：检测+识别串行执行，多张人脸时时间线性增长。改进：批量推理（`blobFromImages` 多张人脸一次前向）。
 

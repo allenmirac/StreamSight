@@ -94,8 +94,9 @@ struct H264Encoder::Impl {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-H264Encoder::H264Encoder(int width, int height, double fps, int bitrate)
+H264Encoder::H264Encoder(int width, int height, double fps, int bitrate, int ffmpeg_threads)
     : width_(width), height_(height), fps_(fps), bitrate_(bitrate)
+    , ffmpeg_threads_(ffmpeg_threads)
     , impl_(new Impl())
 {}
 
@@ -114,6 +115,8 @@ void H264Encoder::BuildCommand() {
         << " -vcodec libx264 -preset ultrafast -tune zerolatency"
         << " -b:v " << bitrate_
         << " -g " << (int)fps_
+        << " -threads " << ffmpeg_threads_
+        << " -x264-params sliced-threads=1"
         << " -f h264 pipe:1";
     pipe_cmd_ = cmd.str();
 }
@@ -142,10 +145,11 @@ bool H264Encoder::Open() {
         ::close(stdin_pipe[0]);  ::close(stdin_pipe[1]);
         ::close(stdout_pipe[0]); ::close(stdout_pipe[1]);
 
-        std::string size_str  = std::to_string(width_) + "x" + std::to_string(height_);
-        std::string fps_str   = std::to_string((int)fps_);
-        std::string bv_str    = std::to_string(bitrate_);
-        std::string gop_str   = fps_str;
+        std::string size_str    = std::to_string(width_) + "x" + std::to_string(height_);
+        std::string fps_str     = std::to_string((int)fps_);
+        std::string bv_str      = std::to_string(bitrate_);
+        std::string gop_str     = fps_str;
+        std::string threads_str = std::to_string(ffmpeg_threads_);
 
         ::execlp("ffmpeg", "ffmpeg",
                  "-loglevel", "error",
@@ -159,6 +163,8 @@ bool H264Encoder::Open() {
                  "-tune", "zerolatency",
                  "-b:v", bv_str.c_str(),
                  "-g", gop_str.c_str(),
+                 "-threads", threads_str.c_str(),
+                 "-x264-params", "sliced-threads=1",
                  "-f", "h264",
                  "pipe:1",
                  (char*)nullptr);

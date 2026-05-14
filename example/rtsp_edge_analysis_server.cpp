@@ -11,6 +11,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
+#include <opencv2/opencv.hpp>
 #include <map>
 #include <memory>
 #include <string>
@@ -54,6 +55,11 @@ static std::map<std::string, std::string> ParseArgs(int argc, char** argv) {
 int main(int argc, char** argv) {
     ::signal(SIGINT,  OnSignal);
     ::signal(SIGTERM, OnSignal);
+
+    // Limit concurrency to avoid core contention between FFmpeg and OpenCV threads.
+    cv::setNumThreads(2);
+    ::setenv("OMP_NUM_THREADS", "2", 1);
+    ::setenv("OPENCV_THREADS", "2", 1);
 
     auto args = ParseArgs(argc, argv);
 

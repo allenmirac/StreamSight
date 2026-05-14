@@ -68,7 +68,8 @@ bool G711ASource::HandleFrame(MediaChannelId channel_id, AVFrame frame)
 
 uint32_t G711ASource::GetTimestamp()
 {
+	// 8000 Hz clock: microseconds / 125 = RTP ticks
 	auto time_point = chrono::time_point_cast<chrono::microseconds>(chrono::steady_clock::now());
-	return (uint32_t)((time_point.time_since_epoch().count()+500)/1000*8);
+	return (uint32_t)(time_point.time_since_epoch().count() / 125);
 }
 

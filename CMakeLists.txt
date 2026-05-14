@@ -28,6 +28,7 @@ set(INC_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/net
     ${CMAKE_CURRENT_SOURCE_DIR}/src/xop
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg
     ${CMAKE_CURRENT_SOURCE_DIR}/src/3rdpart
 )
 include_directories(${INC_DIRS})
@@ -50,6 +51,26 @@ if(OpenCV_FOUND)
 else()
     message(STATUS "OpenCV not found, building without OpenCV support")
     set(OPENCV_LIBS "")
+endif()
+
+# Find FFmpeg
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(FFMPEG
+        libavformat
+        libavcodec
+        libavutil
+        libswscale
+    )
+endif()
+
+if(FFMPEG_FOUND)
+    message(STATUS "FFmpeg found: ${FFMPEG_INCLUDE_DIRS}")
+    include_directories(${FFMPEG_INCLUDE_DIRS})
+    set(FFMPEG_LIBS ${FFMPEG_LIBRARIES})
+else()
+    message(STATUS "FFmpeg not found, building without ffmpeg_streamer")
+    set(FFMPEG_LIBS "")
 endif()
 
 # Common libraries
@@ -89,6 +110,14 @@ set(CDN_SIM_SRCS
 set(OBSERVE_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/observe/MetricsRegistry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/observe/LatencyTracer.cpp
+)
+
+# FFmpeg layer
+set(FFMPEG_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/FFmpegStreamer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/FFmpegUtils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/RtspOutputAdapter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/RtmpOutputAdapter.cpp
 )
 
 # Common sources for all targets
@@ -141,6 +170,23 @@ target_link_libraries(rtsp_edge_analysis_server ${COMMON_LIBS})
 target_compile_options(rtsp_analysis_server PRIVATE -Wall -Wextra)
 target_compile_options(rtsp_edge_analysis_server PRIVATE -Wall -Wextra)
 
+# Target 6: ffmpeg_streamer (FFmpeg C API full pipeline)
+if(FFMPEG_FOUND AND OpenCV_FOUND)
+    add_executable(ffmpeg_streamer
+        ${CMAKE_CURRENT_SOURCE_DIR}/example/ffmpeg_streamer.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+        ${FFMPEG_SRCS}
+    )
+    target_link_libraries(ffmpeg_streamer
+        ${COMMON_LIBS}
+        ${FFMPEG_LIBS}
+    )
+    target_compile_options(ffmpeg_streamer PRIVATE -Wall -Wextra)
+else()
+    message(STATUS "ffmpeg_streamer: requires FFmpeg + OpenCV (skipped)")
+endif()
+
 # Print summary
 message(STATUS "Build targets:")
 message(STATUS "  - rtsp_server")
@@ -148,3 +194,4 @@ message(STATUS "  - rtsp_pusher")
 message(STATUS "  - rtsp_h264_file")
 message(STATUS "  - rtsp_analysis_server")
 message(STATUS "  - rtsp_edge_analysis_server")
+message(STATUS "  - ffmpeg_streamer")

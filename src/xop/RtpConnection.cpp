@@ -1,10 +1,14 @@
-﻿#include "RtpConnection.h"
+#include "RtpConnection.h"
 #include "RtspConnection.h"
+#include "RtcpMessage.h"
 #include "net/SocketUtil.h"
 #include "observe/LatencyTracer.h"
 
 using namespace std;
 using namespace xop;
+
+// RTCP SR interval in milliseconds
+static const uint32_t kRtcpIntervalMs = 5000;
 
 RtpConnection::RtpConnection(std::weak_ptr<TcpConnection> rtsp_connection)
     : rtsp_connection_(rtsp_connection)
@@ -29,6 +33,8 @@ RtpConnection::RtpConnection(std::weak_ptr<TcpConnection> rtsp_connection)
 
 RtpConnection::~RtpConnection()
 {
+	StopRtcpTimer();
+
 	for(int chn=0; chn<MAX_MEDIA_CHANNEL; chn++) {
 		if(rtpfd_[chn] > 0) {
 			SocketUtil::Close(rtpfd_[chn]);
@@ -86,7 +92,7 @@ bool RtpConnection::SetupRtpOverUdp(MediaChannelId channel_id, uint16_t rtp_port
 		if (n == 10) {
 			return false;
 		}
-        
+
 		local_rtp_port_[channel_id] = rd() & 0xfffe;
 		local_rtcp_port_[channel_id] =local_rtp_port_[channel_id] + 1;
 
@@ -129,7 +135,7 @@ bool RtpConnection::SetupRtpOverMulticast(MediaChannelId channel_id, std::string
 		if (n == 10) {
 			return false;
 		}
-       
+
 		local_rtp_port_[channel_id] = rd() & 0xfffe;
 		rtpfd_[channel_id] = ::socket(AF_INET, SOCK_DGRAM, 0);
 		if (!SocketUtil::Bind(rtpfd_[channel_id], "0.0.0.0", local_rtp_port_[channel_id])) {
@@ -159,6 +165,7 @@ void RtpConnection::Play()
 			media_channel_info_[chn].is_play = true;
 		}
 	}
+	StartRtcpTimer();
 }
 
 void RtpConnection::Record()
@@ -169,12 +176,14 @@ void RtpConnection::Record()
 			media_channel_info_[chn].is_play = true;
 		}
 	}
+	StartRtcpTimer();
 }
 
 void RtpConnection::Teardown()
 {
 	if(!is_closed_) {
 		is_closed_ = true;
+		StopRtcpTimer();
 		for(int chn=0; chn<MAX_MEDIA_CHANNEL; chn++) {
 			media_channel_info_[chn].is_play = false;
 			media_channel_info_[chn].is_record = false;
@@ -201,7 +210,7 @@ string RtpConnection::GetRtpInfo(const std::string& rtsp_url)
 		if (media_channel_info_[chn].is_setup) {
 			if (num_channel != 0) {
 				snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), ",");
-			}			
+			}
 
 			snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
 					"url=%s/track%d;seq=0;rtptime=%u",
@@ -216,7 +225,8 @@ string RtpConnection::GetRtpInfo(const std::string& rtsp_url)
 void RtpConnection::SetFrameType(uint8_t frame_type)
 {
 	frame_type_ = frame_type;
-	if(!has_key_frame_ && (frame_type == 0 || frame_type == VIDEO_FRAME_I)) {
+	if(!has_key_frame_ && (frame_type == 0 || frame_type == VIDEO_FRAME_I
+	                        || frame_type == AUDIO_FRAME)) {
 		has_key_frame_ = true;
 	}
 }
@@ -232,11 +242,11 @@ void RtpConnection::SetRtpHeader(MediaChannelId channel_id, RtpPacket pkt)
 }
 
 int RtpConnection::SendRtpPacket(MediaChannelId channel_id, RtpPacket pkt)
-{    
+{
 	if (is_closed_) {
 		return -1;
 	}
-   
+
 	auto conn = rtsp_connection_.lock();
 	if (!conn) {
 		return -1;
@@ -247,16 +257,16 @@ int RtpConnection::SendRtpPacket(MediaChannelId channel_id, RtpPacket pkt)
 	bool ret = rtsp_conn->task_scheduler_->AddTriggerEvent([this, channel_id, pkt] {
 		this->SetFrameType(pkt.type);
 		this->SetRtpHeader(channel_id, pkt);
-		if((media_channel_info_[channel_id].is_play || media_channel_info_[channel_id].is_record) && has_key_frame_ ) {            
+		if((media_channel_info_[channel_id].is_play || media_channel_info_[channel_id].is_record) && has_key_frame_ ) {
 			if(transport_mode_ == RTP_OVER_TCP) {
 				SendRtpOverTcp(channel_id, pkt);
 			}
 			else {
 				SendRtpOverUdp(channel_id, pkt);
 			}
-                   
-			//media_channel_info_[channel_id].octetCount  += pkt.size;
-			//media_channel_info_[channel_id].packetCount += 1;
+
+			media_channel_info_[channel_id].octet_count  += (pkt.size - 4);  // payload only
+			media_channel_info_[channel_id].packet_count += 1;
 		}
 	});
 
@@ -285,11 +295,83 @@ int RtpConnection::SendRtpOverUdp(MediaChannelId channel_id, RtpPacket pkt)
     STREAMSIGHT_LATENCY_SCOPE("xop", "rtp_send");
 	int ret = sendto(rtpfd_[channel_id], (const char*)pkt.data.get()+4, pkt.size-4, 0,
 					(struct sockaddr *)&(peer_rtp_addr_[channel_id]), sizeof(struct sockaddr_in));
-                   
-	if(ret < 0) {        
+
+	if(ret < 0) {
 		Teardown();
 		return -1;
 	}
 
 	return ret;
+}
+
+// ─── RTCP Sender Report ──────────────────────────────────────────────────
+
+void RtpConnection::StartRtcpTimer()
+{
+	if (rtcp_timer_id_ != 0) return;  // already running
+
+	auto conn = rtsp_connection_.lock();
+	if (!conn) return;
+
+	RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
+
+	// Periodic timer: fire every kRtcpIntervalMs, repeats as long as callback returns true
+	rtcp_timer_id_ = rtsp_conn->task_scheduler_->AddTimer(
+		[this]() -> bool {
+			this->OnRtcpTimer();
+			return !this->is_closed_;  // keep repeating while alive
+		},
+		kRtcpIntervalMs);
+}
+
+void RtpConnection::StopRtcpTimer()
+{
+	if (rtcp_timer_id_ == 0) return;
+
+	auto conn = rtsp_connection_.lock();
+	if (conn) {
+		RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
+		rtsp_conn->task_scheduler_->RemoveTimer(rtcp_timer_id_);
+	}
+	rtcp_timer_id_ = 0;
+}
+
+void RtpConnection::OnRtcpTimer()
+{
+	for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+		if (media_channel_info_[chn].is_play || media_channel_info_[chn].is_record) {
+			// Build and send RTCP SR for this channel
+			uint8_t buf[RTCP_SR_SIZE];
+			uint32_t ssrc = ntohl(media_channel_info_[chn].rtp_header.ssrc);
+			uint32_t rtp_ts = ntohl(media_channel_info_[chn].rtp_header.ts);
+			uint32_t pkt_cnt = (uint32_t)media_channel_info_[chn].packet_count;
+			uint32_t oct_cnt = (uint32_t)media_channel_info_[chn].octet_count;
+
+			BuildRtcpSR(buf, ssrc, rtp_ts, pkt_cnt, oct_cnt);
+
+			// Send via current transport mode
+			if (transport_mode_ == RTP_OVER_TCP) {
+				auto conn = rtsp_connection_.lock();
+				if (!conn) return;
+
+				// TCP interleaved format: $ + channel + length + RTCP data
+				uint8_t tcp_buf[4 + RTCP_SR_SIZE];
+				tcp_buf[0] = '$';
+				tcp_buf[1] = (uint8_t)media_channel_info_[chn].rtcp_channel;
+				tcp_buf[2] = (RTCP_SR_SIZE & 0xFF00) >> 8;
+				tcp_buf[3] = (RTCP_SR_SIZE & 0xFF);
+				memcpy(tcp_buf + 4, buf, RTCP_SR_SIZE);
+
+				conn->Send((char*)tcp_buf, 4 + RTCP_SR_SIZE);
+			}
+			else {
+				// UDP mode
+				if (rtcpfd_[chn] > 0) {
+					sendto(rtcpfd_[chn], (const char*)buf, RTCP_SR_SIZE, 0,
+					       (struct sockaddr*)&(peer_rtcp_sddr_[chn]),
+					       sizeof(struct sockaddr_in));
+				}
+			}
+		}
+	}
 }
