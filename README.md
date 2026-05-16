@@ -133,11 +133,12 @@ src/
 │             AACSource, G711ASource, VP8Source, RtcpMessage, SeiLatencyMarker)
 ├── ai/       AI analysis pipeline (VideoSource, FaceDetector, FaceRecognizer,
 │             FaceDatabase, FrameAnalyzer, FrameOverlay, H264Encoder, HttpApiServer)
-├── ffmpeg/   FFmpeg C API pipeline (FFmpegStreamer, RtspOutputAdapter,
-│             RtmpOutputAdapter, MultiOutputAdapter, AudioOutputAdapter)
+├── ffmpeg/   FFmpeg C API pipeline (FFmpegStreamer, StreamPipeline,
+│             PipelineManager, RtspOutputAdapter, RtmpOutputAdapter,
+│             MultiOutputAdapter, AudioOutputAdapter, FrameDropPolicy)
 ├── control/  Control plane (Classifier, Scheduler, PipelineRunner, StreamManager)
 ├── cdn_sim/  Edge node simulation (EdgeNode, EdgeNodePool, ThreadPool)
-├── observe/  MetricsRegistry, LatencyTracer
+├── observe/  MetricsRegistry, LatencyTracer, PithyPrint
 └── 3rdpart/  cpp-httplib (HTTP), md5
 example/
 ├── rtsp_server.cpp                Basic RTSP server
@@ -156,6 +157,8 @@ docs/
 ├── interview.md                    Technical deep-dive Q&A
 └── latency_testing_implementation.md  Latency tracer implementation
 models/                             ONNX model files (download separately)
+scripts/
+└── tune_kernel.sh                  Kernel tuning for low-latency streaming
 ```
 
 ---
@@ -189,7 +192,7 @@ Full documentation: [docs/api.md](docs/api.md)
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the full system diagram and thread model.
+See [docs/StreamSight项目架构说明文档.md](docs/StreamSight项目架构说明文档.md) for the full system diagram and thread model.
 
 ---
 

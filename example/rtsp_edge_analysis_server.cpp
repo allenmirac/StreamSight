@@ -2,8 +2,10 @@
 #include "control/Scheduler.h"
 #include "control/StreamTask.h"
 #include "control/PolicyCenter.h"
+#include "control/PipelineRunner.h"
 #include "observe/MetricsRegistry.h"
 #include "cdn_sim/EdgeNodePool.h"
+#include "ffmpeg/PipelineManager.h"
 
 #include "net/Timer.h"
 
@@ -38,9 +40,11 @@ static std::map<std::string, std::string> ParseArgs(int argc, char** argv) {
     args["log"]           = "events.jsonl";
     args["analyze-fps"]   = "5";
     args["no-ai"]         = "0";
+    args["use-ffmpeg"]    = "0";
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
+        if (a == "--use-ffmpeg") { args["use-ffmpeg"] = "1"; continue; }
         if (a == "--no-ai") {
             args["no-ai"] = "1";
             continue;
@@ -84,8 +88,16 @@ int main(int argc, char** argv) {
     task.enable_overlay = true;
     task.loop_input = true;
     task.max_failover = 2;
+    task.use_ffmpeg_pipeline = (args["use-ffmpeg"] == "1");
 
     auto& metrics = observe::MetricsRegistry::Instance();
+
+    // Setup PipelineManager for ffmpeg parallel pipeline (when --use-ffmpeg)
+    ffmpeg::PipelineManager pipeline_mgr(&metrics);
+    if (task.use_ffmpeg_pipeline) {
+        control::PipelineRunner::SetPipelineManager(&pipeline_mgr);
+        std::cout << "[Main] FFmpeg parallel pipeline enabled" << std::endl;
+    }
 
     auto pool = std::make_shared<cdn_sim::EdgeNodePool>();
     pool->AddNode(std::make_shared<cdn_sim::EdgeNode>(

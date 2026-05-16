@@ -30,6 +30,9 @@ bool TcpSocket::Bind(std::string ip, uint16_t port)
 	addr.sin_addr.s_addr = inet_addr(ip.c_str()); 
 	addr.sin_port = htons(port);  
 
+	SocketUtil::SetReuseAddr(sockfd_);
+	SocketUtil::SetReusePort(sockfd_);
+
 	if(::bind(sockfd_, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
 		LOG_DEBUG(" <socket=%d> bind <%s:%u> failed.\n", sockfd_, ip.c_str(), port);
 		return false;

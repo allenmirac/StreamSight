@@ -485,6 +485,9 @@ bool FFmpegStreamer::ProcessNextFrame() {
     if (!opened_) return false;
 
     // 1. Demux + decode → decoded_ AVFrame
+    auto capture_time = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+
     if (!ReadAndDecode(decoded_)) {
         return false;  // EOF or error
     }
@@ -506,6 +509,7 @@ bool FFmpegStreamer::ProcessNextFrame() {
         ff_frame.pts         = decoded_->pts;
         ff_frame.frame_index = frame_seq_;
         ff_frame.is_keyframe = (decoded_->key_frame != 0);
+        ff_frame.capture_time_us = capture_time;
 
         if (!cfg_.frame_cb(ff_frame)) {
             // Callback returned false — drop this frame

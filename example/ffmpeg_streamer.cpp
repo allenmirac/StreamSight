@@ -7,6 +7,8 @@
 //        ./bin/ffmpeg_streamer --input /dev/video0 --source camera --port 8554
 
 #include "ffmpeg/FFmpegStreamer.h"
+#include "ffmpeg/StreamPipeline.h"
+#include "ffmpeg/PipelineManager.h"
 #include "ffmpeg/RtspOutputAdapter.h"
 #include "ffmpeg/RtmpOutputAdapter.h"
 #include "ffmpeg/MultiOutputAdapter.h"
@@ -60,6 +62,10 @@ static std::map<std::string, std::string> ParseArgs(int argc, char** argv) {
     args["no-ai"]        = "0";
     args["rtmp"]         = "";
     args["threads"]      = "2";
+    args["pipeline-mode"]  = "serial";
+    args["ringbuf-size"]   = "4";
+    args["max-frame-age-ms"] = "500";
+    args["eventloop-threads"] = "2";
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -237,9 +243,13 @@ int main(int argc, char** argv) {
     }
 
     // ── Run ──────────────────────────────────────────────────────────────
-    ffmpeg::FFmpegStreamer streamer(cfg);
+    bool parallel_mode = (args["pipeline-mode"] == "parallel");
+    ffmpeg::PipelineManager pipeline_mgr;
 
     // RTSP event loop thread
+    int ev_threads = std::stoi(args["eventloop-threads"]);
+    auto event_loop_parallel = std::make_shared<xop::EventLoop>((uint32_t)ev_threads);
+
     std::thread rtsp_thread([&]() {
         while (!g_stop) {
             event_loop->Loop();
@@ -247,14 +257,43 @@ int main(int argc, char** argv) {
         }
     });
 
-    // Pipeline thread
-    std::thread pipeline_thread([&]() {
-        streamer.Run(g_stop);
-    });
+    if (parallel_mode) {
+        // ── Parallel mode: StreamPipeline (3-stage) ──────────────────────
+        ffmpeg::PipelineConfig pcfg;
+        pcfg.input_url  = cfg.input_url;
+        pcfg.fps        = cfg.fps;
+        pcfg.bitrate    = cfg.bitrate;
+        pcfg.threads    = cfg.threads;
+        pcfg.output_width  = cfg.output_width;
+        pcfg.output_height = cfg.output_height;
+        pcfg.frame_cb  = cfg.frame_cb;
+        pcfg.outputs   = cfg.outputs;
+        pcfg.decode_ring_size  = std::stoi(args["ringbuf-size"]);
+        pcfg.process_ring_size = std::stoi(args["ringbuf-size"]);
+        pcfg.drop_policy.max_frame_age_us = std::stoi(args["max-frame-age-ms"]) * 1000LL;
+        pcfg.enable_backpressure = true;
 
-    std::cout << "[Main] Running. Ctrl+C to stop." << std::endl;
+        pipeline_mgr.AddStream("main", pcfg);
+        std::cout << "[Main] Running in PARALLEL mode (3-stage pipeline). Ctrl+C to stop." << std::endl;
 
-    pipeline_thread.join();
+        while (!g_stop) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+
+        pipeline_mgr.StopAll();
+    } else {
+        // ── Serial mode: FFmpegStreamer (original) ───────────────────────
+        ffmpeg::FFmpegStreamer streamer(cfg);
+
+        std::thread pipeline_thread([&]() {
+            streamer.Run(g_stop);
+        });
+
+        std::cout << "[Main] Running in SERIAL mode. Ctrl+C to stop." << std::endl;
+
+        pipeline_thread.join();
+    }
+
     g_stop = true;
     rtsp_thread.join();
 

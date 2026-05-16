@@ -133,11 +133,12 @@ src/
 │             AACSource、G711ASource、VP8Source、RtcpMessage、SeiLatencyMarker）
 ├── ai/       AI 分析层（VideoSource、FaceDetector、FaceRecognizer、
 │             FaceDatabase、FrameAnalyzer、FrameOverlay、H264Encoder、HttpApiServer）
-├── ffmpeg/   FFmpeg C API 管线（FFmpegStreamer、RtspOutputAdapter、
-│             RtmpOutputAdapter、MultiOutputAdapter、AudioOutputAdapter）
+├── ffmpeg/   FFmpeg C API 管线（FFmpegStreamer、StreamPipeline、
+│             PipelineManager、RtspOutputAdapter、RtmpOutputAdapter、
+│             MultiOutputAdapter、AudioOutputAdapter、FrameDropPolicy）
 ├── control/  控制层（Classifier、Scheduler、PipelineRunner、StreamManager）
 ├── cdn_sim/  CDN 边缘模拟（EdgeNode、EdgeNodePool、ThreadPool）
-├── observe/  MetricsRegistry、LatencyTracer
+├── observe/  MetricsRegistry、LatencyTracer、PithyPrint
 └── 3rdpart/  cpp-httplib（HTTP）、md5
 example/
 ├── rtsp_server.cpp               基础 RTSP 服务器
@@ -156,6 +157,8 @@ docs/
 ├── interview.md                    技术深挖 Q&A
 └── latency_testing_implementation.md  延迟追踪实现
 models/                             ONNX 模型文件（需单独下载）
+scripts/
+└── tune_kernel.sh                  内核调优脚本（低延迟推流）
 ```
 
 ---
@@ -189,7 +192,7 @@ models/                             ONNX 模型文件（需单独下载）
 
 ## 架构说明
 
-完整系统架构图和线程模型见 [docs/architecture.md](docs/architecture.md)。
+完整系统架构图和线程模型见 [docs/StreamSight项目架构说明文档.md](docs/StreamSight项目架构说明文档.md)。
 
 ---
 

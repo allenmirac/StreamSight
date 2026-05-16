@@ -19,6 +19,7 @@ TcpConnection::TcpConnection(TaskScheduler *task_scheduler, SOCKET sockfd)
 	SocketUtil::SetNonBlock(sockfd);
 	SocketUtil::SetSendBufSize(sockfd, 100 * 1024);
 	SocketUtil::SetKeepAlive(sockfd);
+	SocketUtil::SetNoDelay(sockfd);
 
 	channel_->EnableReading();
 	task_scheduler_->UpdateChannel(channel_);

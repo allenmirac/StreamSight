@@ -28,6 +28,7 @@ struct FFmpegFrame {
     int64_t  pts;           // original decoder PTS in stream timebase
     int64_t  frame_index;   // sequential counter from stream start
     bool     is_keyframe;
+    int64_t  capture_time_us = 0;  // steady_clock timestamp at capture (ReadAndDecode)
 };
 
 // Zero-copy: wrap FFmpegFrame BGR24 data as cv::Mat for AI processing.

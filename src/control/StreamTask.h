@@ -137,6 +137,8 @@ struct StreamTask {
 
     int priority     { 100 };
     int max_failover { 2 };
+
+    bool use_ffmpeg_pipeline { false };  // use StreamPipeline (parallel) instead of legacy
 };
 
 } // namespace control

@@ -118,6 +118,8 @@ set(FFMPEG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/FFmpegUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/RtspOutputAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/RtmpOutputAdapter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamPipeline.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/PipelineManager.cpp
 )
 
 # Common sources for all targets
@@ -163,8 +165,9 @@ add_executable(rtsp_edge_analysis_server
     ${AI_SRCS}
     ${CONTROL_SRCS}
     ${CDN_SIM_SRCS}
+    ${FFMPEG_SRCS}
 )
-target_link_libraries(rtsp_edge_analysis_server ${COMMON_LIBS})
+target_link_libraries(rtsp_edge_analysis_server ${COMMON_LIBS} ${FFMPEG_LIBS})
 
 # Optional: Add compile features or specific flags per target
 target_compile_options(rtsp_analysis_server PRIVATE -Wall -Wextra)

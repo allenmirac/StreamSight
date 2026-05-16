@@ -17,6 +17,7 @@ struct OutputConfig {
     void*       rtsp_server = nullptr;  // xop::RtspServer* (for RtspOutputAdapter)
     uint32_t    session_id  = 0;        // xop::MediaSessionId
     uint32_t    fps         = 25;
+    bool        enable_latency_sei = false;  // inject SEI latency marker on keyframes
 };
 
 class IOutputAdapter {
