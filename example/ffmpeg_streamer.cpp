@@ -19,13 +19,9 @@
 #include "xop/H264Source.h"
 #include "xop/AACSource.h"
 #include "net/EventLoop.h"
-#include "ai/FaceDetector.h"
-#include "ai/FaceRecognizer.h"
-#include "ai/FaceDatabase.h"
-#include "ai/FrameAnalyzer.h"
-#include "ai/FrameOverlay.h"
+#include "effect/EffectChain.h"
+#include "effect/FaceRecognitionPlugin.h"
 #include "ai/HttpApiServer.h"
-#include "ai/EventLogger.h"
 
 #include <iostream>
 #include <thread>
@@ -137,50 +133,28 @@ int main(int argc, char** argv) {
     std::cout << "[Main] RTSP: rtsp://localhost:" << port
               << "/" << args["suffix"] << std::endl;
 
-    // ── AI modules (same as rtsp_analysis_server) ────────────────────────
-    std::unique_ptr<ai::FaceDetector>   detector;
-    std::unique_ptr<ai::FaceRecognizer> recognizer;
-    std::unique_ptr<ai::FaceDatabase>   database;
-    std::unique_ptr<ai::FrameAnalyzer>  analyzer;
-    std::unique_ptr<ai::FrameOverlay>   overlay;
-    std::unique_ptr<ai::EventLogger>    logger;
-    std::unique_ptr<ai::HttpApiServer>  api_server;
+    // ── EffectChain with FaceRecognitionPlugin ─────────────────────────
+    streamsight::EffectChain effect_chain;
+    std::shared_ptr<streamsight::FaceRecognitionPlugin> face_plugin;
+    std::unique_ptr<ai::HttpApiServer> api_server;
 
     if (!no_ai) {
-        detector.reset(new ai::FaceDetector(args["detect-model"]));
-        if (!detector->Load()) {
-            std::cerr << "[Main] Warning: detector model not loaded"
-                      << std::endl;
-            detector.reset();
-        }
+        streamsight::FaceRecognitionPlugin::Config face_cfg;
+        face_cfg.detect_model   = args["detect-model"];
+        face_cfg.recog_model    = args["recog-model"];
+        face_cfg.face_db_path   = args["db"];
+        face_cfg.event_log_path = args["log"];
+        face_cfg.analyze_fps    = afps;
 
-        recognizer.reset(new ai::FaceRecognizer(args["recog-model"]));
-        if (!recognizer->Load()) {
-            std::cerr << "[Main] Warning: recognizer model not loaded"
-                      << std::endl;
-            recognizer.reset();
-        }
+        face_plugin = std::make_shared<streamsight::FaceRecognitionPlugin>(face_cfg);
+        face_plugin->Open("");
 
-        database.reset(new ai::FaceDatabase(args["db"]));
-        database->Load();
-
-        analyzer.reset(new ai::FrameAnalyzer(
-            detector.get(), recognizer.get(), database.get()));
-        analyzer->SetAnalyzeRate(afps);
-
-        overlay.reset(new ai::FrameOverlay());
-
-        logger.reset(new ai::EventLogger(args["log"]));
-        logger->Open();
-        analyzer->SetEventCallback([&](const ai::AnalysisResult& r) {
-            if (logger) logger->Log(r);
-        });
+        effect_chain.AddPlugin(face_plugin);
 
         api_server.reset(new ai::HttpApiServer(
-            http_port, database.get(), recognizer.get()));
+            http_port, face_plugin->GetDatabase(), face_plugin->GetRecognizer()));
         api_server->Start();
-        std::cout << "[Main] HTTP API: http://localhost:" << http_port
-                  << std::endl;
+        std::cout << "[Main] HTTP API: http://localhost:" << http_port << std::endl;
     }
 
     // ── FFmpegStreamer pipeline ──────────────────────────────────────────
@@ -193,8 +167,8 @@ int main(int argc, char** argv) {
     cfg.output_height = height;
     cfg.reconnect_on_eof = (args["source"] == "rtsp");
 
-    // AI interception callback
-    if (analyzer) {
+    // AI interception callback via EffectChain
+    if (!effect_chain.Empty()) {
         cfg.frame_cb = [&](ffmpeg::FFmpegFrame& f) -> bool {
             cv::Mat mat = ffmpeg::FrameToMat(f);
 
@@ -202,18 +176,18 @@ int main(int argc, char** argv) {
                 cv::resize(mat, mat, cv::Size(width, height));
             }
 
-            ai::AnalysisResult result = analyzer->Analyze(mat);
+            std::vector<streamsight::EffectResult> results;
+            bool ok = effect_chain.ProcessFrame(
+                mat.data, mat.cols, mat.rows, (int)mat.step, results);
 
-            if (overlay) {
-                overlay->Draw(mat, result);
+            // Feed results to API server
+            if (api_server && face_plugin) {
+                const auto& analysis = face_plugin->GetLastResult();
+                api_server->UpdateResult(analysis);
+                api_server->AddEvent(analysis);
             }
 
-            if (api_server) {
-                api_server->UpdateResult(result);
-                api_server->AddEvent(result);
-            }
-
-            return true;
+            return ok;
         };
     }
 
@@ -307,9 +281,8 @@ int main(int argc, char** argv) {
     rtsp_thread.join();
 
     // Cleanup
-    if (api_server) api_server->Stop();
-    if (logger)     logger->Close();
-    if (database)   database->Save();
+    if (api_server)  api_server->Stop();
+    if (face_plugin) face_plugin->Close();
     rtsp_server->RemoveSession(session_id);
 
     std::cout << "[Main] Done." << std::endl;
