@@ -38,6 +38,13 @@ bool FaceRecognitionPlugin::Open(const std::string& /*config_json*/) {
         recognizer_.reset();
     }
 
+    // Both critical models failed — plugin cannot do meaningful work
+    if (!detector_ && !recognizer_) {
+        std::cerr << "[FaceRecognitionPlugin] no models loaded, Open failed"
+                  << std::endl;
+        return false;
+    }
+
     database_.reset(new ai::FaceDatabase(cfg_.face_db_path));
     database_->Load();
 

@@ -11,7 +11,6 @@
 #include "ffmpeg/PipelineManager.h"
 #include "ffmpeg/RtspOutputAdapter.h"
 #include "ffmpeg/RtmpOutputAdapter.h"
-#include "ffmpeg/MultiOutputAdapter.h"
 #include "ffmpeg/FFmpegUtils.h"
 
 // Existing AI pipeline (same as rtsp_analysis_server)
@@ -147,14 +146,18 @@ int main(int argc, char** argv) {
         face_cfg.analyze_fps    = afps;
 
         face_plugin = std::make_shared<streamsight::FaceRecognitionPlugin>(face_cfg);
-        face_plugin->Open("");
+        if (face_plugin->Open("")) {
+            effect_chain.AddPlugin(face_plugin);
 
-        effect_chain.AddPlugin(face_plugin);
-
-        api_server.reset(new ai::HttpApiServer(
-            http_port, face_plugin->GetDatabase(), face_plugin->GetRecognizer()));
-        api_server->Start();
-        std::cout << "[Main] HTTP API: http://localhost:" << http_port << std::endl;
+            api_server.reset(new ai::HttpApiServer(
+                http_port, face_plugin->GetDatabase(), face_plugin->GetRecognizer()));
+            api_server->Start();
+            std::cout << "[Main] HTTP API: http://localhost:" << http_port << std::endl;
+        } else {
+            std::cerr << "[Main] FaceRecognitionPlugin failed to open, "
+                      << "running without AI processing" << std::endl;
+            face_plugin.reset();
+        }
     }
 
     // ── FFmpegStreamer pipeline ──────────────────────────────────────────
