@@ -1,0 +1,10 @@
+version: "3"
+services:
+  srs:
+    image: ossrs/srs:5
+    ports:
+      - "1935:1935"
+      - "8080:8080"
+    volumes:
+      - ./srs.conf:/usr/local/srs/conf/srs.conf:ro
+    command: ["/usr/local/srs/objs/srs", "-c", "/usr/local/srs/conf/srs.conf"]
