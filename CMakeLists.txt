@@ -29,6 +29,7 @@ set(INC_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/xop
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/effect
     ${CMAKE_CURRENT_SOURCE_DIR}/src/3rdpart
 )
 include_directories(${INC_DIRS})
@@ -123,6 +124,11 @@ set(FFMPEG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/PipelineManager.cpp
 )
 
+# Effect layer
+set(EFFECT_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/effect/FaceRecognitionPlugin.cpp
+)
+
 # Common sources for all targets
 set(COMMON_SRCS
     ${NET_SRCS}
@@ -181,6 +187,7 @@ if(FFMPEG_FOUND AND OpenCV_FOUND)
         ${COMMON_SRCS}
         ${AI_SRCS}
         ${FFMPEG_SRCS}
+        ${EFFECT_SRCS}
     )
     target_link_libraries(ffmpeg_streamer
         ${COMMON_LIBS}
