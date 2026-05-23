@@ -10,19 +10,23 @@ namespace ffmpeg {
 
 struct FrameDropPolicy {
 	// Maximum frame age in microseconds before a frame is considered stale.
-	// When the ring buffer is full and the oldest frame exceeds this age,
-	// it will be dropped to make room for a new frame.
+	// Used by PushOrDrop (reactive, when buffer is full) and PruneStale
+	// (proactive sliding window, when fill ratio >= start_drop_ratio).
 	int64_t max_frame_age_us = 500000;  // 500 ms
 
-	// Ring buffer fill ratio at which backpressure activates (0.0 - 1.0).
-	// Below this, all frames are accepted. Above this, age-based dropping begins.
+	// Sliding window width in microseconds. When > 0, frames more than
+	// time_window_us behind the newest frame are pruned (regardless of
+	// absolute age). 0 disables relative-age pruning (only absolute age used).
+	int64_t time_window_us = 0;
+
+	// Ring buffer fill ratio at which proactive time pruning activates (0.0 - 1.0).
+	// Below this, only reactive PushOrDrop is used (saves CPU).
+	// Also used as the AI rate-control threshold.
 	float start_drop_ratio = 0.75f;
 
-	// If true, drop the oldest frame when buffer is full and it's stale.
-	// If false, drop the newest frame instead (keeps buffer at newest N frames).
-	bool drop_oldest = true;
-
-	// Prefer keeping I-frames (keyframes) over P-frames when deciding what to drop.
+	// Prefer keeping I-frames (keyframes) over P-frames during PruneStale.
+	// Keyframes are moved to the back of the queue rather than dropped,
+	// but scanning continues past them.
 	bool prefer_keep_keyframe = true;
 };
 

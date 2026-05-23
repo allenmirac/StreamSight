@@ -2,6 +2,7 @@
 // SRS-inspired 3-stage pipeline implementation.
 
 #include "StreamPipeline.h"
+#include "AudioOutputAdapter.h"
 #include "FFmpegUtils.h"
 #include "observe/PithyPrint.h"
 #include <cstdio>
@@ -29,6 +30,7 @@ StreamPipeline::StreamPipeline(const std::string& stream_id,
 	, cfg_(cfg)
 	, decode_ring_(cfg.decode_ring_size)
 	, process_ring_(cfg.process_ring_size)
+	, audio_ring_(cfg.audio_ring_size)
 {}
 
 StreamPipeline::~StreamPipeline() {
@@ -65,6 +67,8 @@ void StreamPipeline::Stop() {
 	          << "  decoded=" << frames_decoded_
 	          << "  drop_demux=" << dropped_demux_
 	          << "  drop_ai=" << dropped_ai_
+	          << "  pruned_demux=" << pruned_demux_
+	          << "  pruned_ai=" << pruned_ai_
 	          << std::endl;
 }
 
@@ -105,15 +109,22 @@ bool StreamPipeline::OpenDemuxer() {
 	}
 
 	video_idx_ = -1;
+	audio_idx_ = -1;
 	for (unsigned i = 0; i < ifmt_ctx_->nb_streams; ++i) {
-		if (ifmt_ctx_->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+		auto type = ifmt_ctx_->streams[i]->codecpar->codec_type;
+		if (type == AVMEDIA_TYPE_VIDEO && video_idx_ < 0) {
 			video_idx_ = (int)i;
-			break;
+		} else if (type == AVMEDIA_TYPE_AUDIO && audio_idx_ < 0 && cfg_.enable_audio) {
+			audio_idx_ = (int)i;
 		}
 	}
 	if (video_idx_ < 0) {
 		std::cerr << "[StreamPipeline] no video stream" << std::endl;
 		return false;
+	}
+	if (audio_idx_ >= 0) {
+		std::cout << "[StreamPipeline] audio stream found: idx="
+		          << audio_idx_ << std::endl;
 	}
 
 	AVStream* vs = ifmt_ctx_->streams[video_idx_];
@@ -134,6 +145,26 @@ bool StreamPipeline::OpenDemuxer() {
 	ret = avcodec_open2(dec_ctx_, decoder_, nullptr);
 	if (ret < 0) return false;
 
+	// Open audio decoder if present
+	if (audio_idx_ >= 0) {
+		AVStream* as = ifmt_ctx_->streams[audio_idx_];
+		audio_decoder_ = avcodec_find_decoder(as->codecpar->codec_id);
+		if (audio_decoder_) {
+			audio_dec_ctx_ = avcodec_alloc_context3(audio_decoder_);
+			int aret = avcodec_parameters_to_context(audio_dec_ctx_, as->codecpar);
+			if (aret >= 0) {
+				audio_dec_ctx_->thread_count = 1;
+				aret = avcodec_open2(audio_dec_ctx_, audio_decoder_, nullptr);
+				if (aret >= 0) {
+					std::cout << "[StreamPipeline] audio decoder: "
+					          << audio_decoder_->name << " "
+					          << audio_dec_ctx_->sample_rate << "Hz "
+					          << audio_dec_ctx_->channels << "ch" << std::endl;
+				}
+			}
+		}
+	}
+
 	// Create BGR24 scaler
 	to_bgr_ = sws_getContext(
 		dec_width_, dec_height_, (AVPixelFormat)vs->codecpar->format,
@@ -149,9 +180,12 @@ bool StreamPipeline::OpenDemuxer() {
 void StreamPipeline::CloseDemuxer() {
 	if (to_bgr_) { sws_freeContext(to_bgr_); to_bgr_ = nullptr; }
 	if (dec_ctx_) { avcodec_free_context(&dec_ctx_); }
+	if (audio_dec_ctx_) { avcodec_free_context(&audio_dec_ctx_); }
 	if (ifmt_ctx_) { avformat_close_input(&ifmt_ctx_); ifmt_ctx_ = nullptr; }
 	decoder_ = nullptr;
+	audio_decoder_ = nullptr;
 	video_idx_ = -1;
+	audio_idx_ = -1;
 }
 
 bool StreamPipeline::ReadAndDecodeOnce(AVFrame* decoded) {
@@ -169,6 +203,57 @@ bool StreamPipeline::ReadAndDecodeOnce(AVFrame* decoded) {
 			return false;
 		}
 
+		// Handle audio packets: decode and push to audio ring buffer
+		if (pkt->stream_index == audio_idx_) {
+			if (audio_dec_ctx_) {
+				int aret = avcodec_send_packet(audio_dec_ctx_, pkt);
+				if (aret >= 0) {
+					AVFrame* aframe = av_frame_alloc();
+					while (avcodec_receive_frame(audio_dec_ctx_, aframe) == 0) {
+						int bps = av_get_bytes_per_sample(
+							(AVSampleFormat)aframe->format);
+						int data_size = aframe->nb_samples *
+							aframe->channels * bps;
+						auto pcm = std::make_shared<std::vector<uint8_t>>(data_size);
+						std::memcpy(pcm->data(), aframe->data[0], data_size);
+
+						AudioFrame auframe;
+						auframe.pcm_data = pcm;
+						auframe.capture_time_us = std::chrono::duration_cast<
+							std::chrono::microseconds>(
+							std::chrono::steady_clock::now().time_since_epoch()
+						).count();
+						auframe.sample_rate = aframe->sample_rate;
+						auframe.channels    = aframe->channels;
+						auframe.nb_samples  = aframe->nb_samples;
+
+						if (cfg_.enable_backpressure) {
+							auto ts_getter = [](const AudioFrame& f) {
+								return f.capture_time_us;
+							};
+							auto now_us = auframe.capture_time_us;
+							auto status = audio_ring_.PushOrDrop(
+								std::move(auframe), now_us,
+								cfg_.drop_policy.max_frame_age_us, ts_getter);
+							if (status == xop::RingBuffer<AudioFrame>::DropStatus::OldDropped) {
+								++audio_dropped_;
+							}
+						} else {
+							if (!audio_ring_.Push(std::move(auframe))) {
+								audio_ring_.PushOverwrite(std::move(auframe));
+								++audio_dropped_;
+							}
+						}
+						av_frame_unref(aframe);
+					}
+					av_frame_free(&aframe);
+				}
+			}
+			av_packet_unref(pkt);
+			continue;
+		}
+
+		// Skip non-video, non-audio packets
 		if (pkt->stream_index != video_idx_) {
 			av_packet_unref(pkt);
 			continue;
@@ -269,6 +354,7 @@ void StreamPipeline::DemuxDecodeLoop() {
 			std::cout << "[StreamPipeline " << stream_id_ << "] demux: "
 			          << decode_ring_.Size() << "/" << decode_ring_.Capacity()
 			          << " decode_ring  dropped=" << dropped_demux_
+			          << " pruned=" << pruned_demux_
 			          << "  frames=" << frames_decoded_ << std::endl;
 		}
 	}
@@ -285,6 +371,25 @@ void StreamPipeline::AIProcessLoop() {
 	observe::PithyPrint pithy(5000);
 
 	while (!stop_ || !decode_ring_.IsEmpty()) {
+		// ── Sliding time window: proactively prune stale frames ──
+		if (cfg_.enable_backpressure) {
+			float fill_ratio = (float)decode_ring_.Size() / decode_ring_.Capacity();
+			if (fill_ratio >= cfg_.drop_policy.start_drop_ratio) {
+				auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now().time_since_epoch()).count();
+				int64_t cutoff_us = now_us - cfg_.drop_policy.max_frame_age_us;
+				auto ts_getter = [](const DecodedFrame& f) { return f.capture_time_us; };
+				std::function<bool(const DecodedFrame&)> kf_fn = nullptr;
+				if (cfg_.drop_policy.prefer_keep_keyframe) {
+					kf_fn = [](const DecodedFrame& f) { return f.is_keyframe; };
+				}
+				int pruned = decode_ring_.PruneStale(cutoff_us, ts_getter, kf_fn);
+				if (pruned > 0) {
+					pruned_demux_ += pruned;
+				}
+			}
+		}
+
 		DecodedFrame dframe;
 		if (!decode_ring_.Pop(dframe)) {
 			if (stop_) break;
@@ -296,9 +401,10 @@ void StreamPipeline::AIProcessLoop() {
 		bool skip_ai = false;
 		if (cfg_.enable_backpressure) {
 			float fill_ratio = (float)decode_ring_.Size() / decode_ring_.Capacity();
-			if (fill_ratio > 0.90f) {
+			float r = cfg_.drop_policy.start_drop_ratio;
+			if (fill_ratio > r + 0.15f) {
 				skip_ai = true;  // too far behind, skip AI entirely
-			} else if (fill_ratio > 0.75f && !dframe.is_keyframe) {
+			} else if (fill_ratio > r && !dframe.is_keyframe) {
 				skip_ai = true;  // skip AI on non-keyframes when backlogged
 			}
 		}
@@ -352,6 +458,8 @@ void StreamPipeline::AIProcessLoop() {
 			          << " -> " << process_ring_.Size() << "/" << process_ring_.Capacity()
 			          << " process_ring"
 			          << (skip_ai ? " (skipping AI)" : "")
+			          << "  pruned_demux=" << pruned_demux_
+			          << "  pruned_ai=" << pruned_ai_
 			          << std::endl;
 		}
 	}
@@ -407,6 +515,17 @@ void StreamPipeline::EncodeOutputLoop() {
 		}
 	}
 
+	// Open audio output adapter
+	AudioOutputAdapter audio_out(
+		cfg_.audio_rtsp_server, cfg_.audio_session_id,
+		cfg_.audio_channel, cfg_.audio_sample_rate, cfg_.audio_channels);
+	bool audio_enabled = (cfg_.enable_audio &&
+	                      cfg_.audio_rtsp_server != nullptr &&
+	                      cfg_.audio_session_id > 0);
+	if (audio_enabled) {
+		audio_enabled = audio_out.Open();
+	}
+
 	// BGR24 → YUV420P scaler (use first frame dimensions or defaults)
 	to_enc_ = sws_getContext(dst_w, dst_h, AV_PIX_FMT_BGR24,
 	                         dst_w, dst_h, AV_PIX_FMT_YUV420P,
@@ -423,7 +542,59 @@ void StreamPipeline::EncodeOutputLoop() {
 	observe::PithyPrint pithy(5000);
 	int64_t frame_idx = 0;
 
-	while (!stop_ || !process_ring_.IsEmpty()) {
+	while (!stop_ || !process_ring_.IsEmpty() || !audio_ring_.IsEmpty()) {
+		// ── Audio output: process pending audio frames ──
+		if (audio_enabled) {
+			while (!audio_ring_.IsEmpty()) {
+				// Prune stale audio frames first
+				if (cfg_.enable_backpressure) {
+					auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+						std::chrono::steady_clock::now().time_since_epoch()).count();
+					int64_t cutoff_us = now_us - cfg_.drop_policy.max_frame_age_us;
+					auto ts_getter = [](const AudioFrame& f) { return f.capture_time_us; };
+					int pruned = audio_ring_.PruneStale(cutoff_us, ts_getter, nullptr);
+					if (pruned > 0) audio_pruned_ += pruned;
+				}
+
+				AudioFrame auframe;
+				if (!audio_ring_.Pop(auframe)) break;
+
+				// Wrap PCM in AVFrame for the AAC encoder
+				AVFrame* pcm_frame = av_frame_alloc();
+				pcm_frame->format      = AV_SAMPLE_FMT_S16;
+				pcm_frame->sample_rate = auframe.sample_rate;
+				pcm_frame->channel_layout = auframe.channels == 2 ?
+					AV_CH_LAYOUT_STEREO : AV_CH_LAYOUT_MONO;
+				pcm_frame->channels    = auframe.channels;
+				pcm_frame->nb_samples  = auframe.nb_samples;
+				av_frame_get_buffer(pcm_frame, 0);
+				std::memcpy(pcm_frame->data[0], auframe.pcm_data->data(),
+				            auframe.pcm_data->size());
+
+				audio_out.PushFrame(pcm_frame);
+				av_frame_free(&pcm_frame);
+			}
+		}
+
+		// ── Sliding time window: proactively prune stale video frames ──
+		if (cfg_.enable_backpressure) {
+			float fill_ratio = (float)process_ring_.Size() / process_ring_.Capacity();
+			if (fill_ratio >= cfg_.drop_policy.start_drop_ratio) {
+				auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now().time_since_epoch()).count();
+				int64_t cutoff_us = now_us - cfg_.drop_policy.max_frame_age_us;
+				auto ts_getter = [](const ProcessedFrame& f) { return f.capture_time_us; };
+				std::function<bool(const ProcessedFrame&)> kf_fn = nullptr;
+				if (cfg_.drop_policy.prefer_keep_keyframe) {
+					kf_fn = [](const ProcessedFrame& f) { return f.is_keyframe; };
+				}
+				int pruned = process_ring_.PruneStale(cutoff_us, ts_getter, kf_fn);
+				if (pruned > 0) {
+					pruned_ai_ += pruned;
+				}
+			}
+		}
+
 		ProcessedFrame pframe;
 		if (!process_ring_.Pop(pframe)) {
 			if (stop_) break;
@@ -447,7 +618,12 @@ void StreamPipeline::EncodeOutputLoop() {
 		          enc_in_->data, enc_in_->linesize);
 		av_frame_free(&bgr_wrap);
 
-		enc_in_->pts = frame_idx++;
+		// PTS from capture time: preserves real frame timing through pipeline
+		if (frame_idx == 0) {
+			pts_base_us_ = pframe.capture_time_us;
+		}
+		enc_in_->pts = (pframe.capture_time_us - pts_base_us_) * cfg_.fps / 1000000;
+		++frame_idx;
 
 		// Encode
 		ret = avcodec_send_frame(enc_ctx_, enc_in_);
@@ -484,6 +660,7 @@ void StreamPipeline::EncodeOutputLoop() {
 
 	// Cleanup
 	for (auto& out : cfg_.outputs) out->Close();
+	if (audio_enabled) audio_out.Close();
 	if (enc_in_)  av_frame_free(&enc_in_);
 	if (to_enc_)  sws_freeContext(to_enc_);
 	if (enc_ctx_) avcodec_free_context(&enc_ctx_);

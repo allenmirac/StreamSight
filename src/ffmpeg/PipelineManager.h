@@ -16,9 +16,11 @@
 namespace ffmpeg {
 
 struct PipelineStats {
-	int64_t frames_decoded    = 0;
+	int64_t frames_decoded       = 0;
 	int64_t frames_dropped_demux = 0;
-	int64_t frames_dropped_ai   = 0;
+	int64_t frames_dropped_ai    = 0;
+	int64_t frames_pruned_demux  = 0;
+	int64_t frames_pruned_ai     = 0;
 	int  decode_ring_fill    = 0;
 	int  process_ring_fill   = 0;
 	bool running             = false;

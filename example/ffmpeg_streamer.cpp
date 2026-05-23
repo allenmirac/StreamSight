@@ -65,11 +65,14 @@ static std::map<std::string, std::string> ParseArgs(int argc, char** argv) {
     args["pipeline-mode"]  = "serial";
     args["ringbuf-size"]   = "4";
     args["max-frame-age-ms"] = "500";
+    args["time-window-ms"] = "0";
     args["eventloop-threads"] = "2";
+    args["enable-audio"]   = "1";
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--no-ai") { args["no-ai"] = "1"; continue; }
+        if (a == "--no-audio") { args["enable-audio"] = "0"; continue; }
         if (a.substr(0, 2) == "--" && i + 1 < argc) {
             args[a.substr(2)] = argv[++i];
         }
@@ -270,8 +273,14 @@ int main(int argc, char** argv) {
         pcfg.outputs   = cfg.outputs;
         pcfg.decode_ring_size  = std::stoi(args["ringbuf-size"]);
         pcfg.process_ring_size = std::stoi(args["ringbuf-size"]);
+        pcfg.audio_ring_size   = std::stoi(args["ringbuf-size"]) * 2;
         pcfg.drop_policy.max_frame_age_us = std::stoi(args["max-frame-age-ms"]) * 1000LL;
+        pcfg.drop_policy.time_window_us = std::stoi(args["time-window-ms"]) * 1000LL;
         pcfg.enable_backpressure = true;
+        pcfg.enable_audio       = (args["enable-audio"] == "1");
+        pcfg.audio_rtsp_server  = rtsp_server.get();
+        pcfg.audio_session_id   = session_id;
+        pcfg.audio_channel      = (int)xop::channel_1;
 
         pipeline_mgr.AddStream("main", pcfg);
         std::cout << "[Main] Running in PARALLEL mode (3-stage pipeline). Ctrl+C to stop." << std::endl;

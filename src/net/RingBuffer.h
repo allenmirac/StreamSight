@@ -107,6 +107,49 @@ public:
 		return DropStatus::NewDropped;
 	}
 
+	// Sliding time window: batch-remove all entries whose timestamp < cutoff_us.
+	// Returns the number of pruned entries. Stops at the first entry whose
+	// timestamp >= cutoff_us (since entries are FIFO-ordered by insertion time).
+	// If keep_keyframe_fn returns true for an entry, it is skipped (not pruned),
+	// but pruning continues past it. Pass nullptr to skip keyframe protection.
+	// Thread-safe via overwrite_mutex_.
+	int PruneStale(int64_t cutoff_us,
+	               std::function<int64_t(const T&)> peek_timestamp,
+	               std::function<bool(const T&)> keep_keyframe_fn = nullptr)
+	{
+		std::lock_guard<std::mutex> lock(overwrite_mutex_);
+		int pruned = 0;
+		int scanned = 0;
+		int total = num_datas_.load();
+		while (num_datas_ > 0 && scanned < total) {
+			int pos = get_pos_.load(std::memory_order_relaxed);
+			int64_t ts = peek_timestamp(buffer_[pos]);
+			if (ts < cutoff_us) {
+				if (keep_keyframe_fn && keep_keyframe_fn(buffer_[pos])) {
+					// Keyframe: skip it by advancing get_pos_ and re-pushing at tail
+					// (move to back to preserve it while continuing scan)
+					T preserved = std::move(buffer_[pos]);
+					Advance(get_pos_);
+					num_datas_--;
+					// Re-insert at the back
+					int wpos = put_pos_.load(std::memory_order_relaxed);
+					buffer_[wpos] = std::move(preserved);
+					Advance(put_pos_);
+					num_datas_++;
+					scanned++;
+					continue;
+				}
+				Advance(get_pos_);
+				num_datas_--;
+				pruned++;
+			} else {
+				break;  // FIFO: first fresh frame means all subsequent are fresh
+			}
+			scanned++;
+		}
+		return pruned;
+	}
+
 	bool IsFull()  const
 	{
 		return ((num_datas_==capacity_) ? true : false);

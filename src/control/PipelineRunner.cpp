@@ -145,6 +145,12 @@ PipelineResult PipelineRunner::RunFFmpeg(std::atomic<bool>& stop_flag) {
 			                     (double)stats.frames_decoded);
 			metrics_->IncCounter("stream." + task_.stream_id, "frames_dropped_demux",
 			                     (double)stats.frames_dropped_demux);
+			metrics_->IncCounter("stream." + task_.stream_id, "frames_dropped_ai",
+			                     (double)stats.frames_dropped_ai);
+			metrics_->IncCounter("stream." + task_.stream_id, "frames_pruned_demux",
+			                     (double)stats.frames_pruned_demux);
+			metrics_->IncCounter("stream." + task_.stream_id, "frames_pruned_ai",
+			                     (double)stats.frames_pruned_ai);
 		}
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));

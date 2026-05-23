@@ -9,6 +9,7 @@
 #ifndef FFMPEG_STREAM_PIPELINE_H
 #define FFMPEG_STREAM_PIPELINE_H
 
+#include "AudioFrame.h"
 #include "FFmpegUtils.h"
 #include "FrameDropPolicy.h"
 #include "IOutputAdapter.h"
@@ -93,6 +94,18 @@ struct PipelineConfig {
 
 	// ── Output ──────────────────────────────────────────────
 	std::vector<std::shared_ptr<IOutputAdapter>> outputs;
+
+	// ── Audio ────────────────────────────────────────────────
+	bool enable_audio       = true;
+	int  audio_sample_rate  = 44100;
+	int  audio_channels     = 2;
+	int  audio_ring_size    = 8;    // audio buffer: more slots, smaller frames
+
+	// Audio output adapter (created externally, owned by caller).
+	// If set, the audio path is enabled in StreamPipeline.
+	void* audio_rtsp_server  = nullptr;
+	uint32_t audio_session_id = 0;
+	int  audio_channel       = 1;    // xop::channel_1
 };
 
 class StreamPipeline {
@@ -110,8 +123,12 @@ public:
 	int  DecodeRingFill() const;
 	int  ProcessRingFill() const;
 	int64_t FramesDecoded()    const { return frames_decoded_; }
-	int64_t FramesDroppedDemux() const { return dropped_demux_; }
-	int64_t FramesDroppedAI()   const { return dropped_ai_; }
+	int64_t FramesDroppedDemux()  const { return dropped_demux_; }
+	int64_t FramesDroppedAI()    const { return dropped_ai_; }
+	int64_t FramesPrunedDemux()  const { return pruned_demux_; }
+	int64_t FramesPrunedAI()     const { return pruned_ai_; }
+	int64_t AudioFramesDropped() const { return audio_dropped_; }
+	int64_t AudioFramesPruned()  const { return audio_pruned_; }
 
 	const std::string& StreamId() const { return stream_id_; }
 
@@ -139,6 +156,7 @@ private:
 	// Ring buffers
 	xop::RingBuffer<DecodedFrame>  decode_ring_;
 	xop::RingBuffer<ProcessedFrame> process_ring_;
+	xop::RingBuffer<AudioFrame>    audio_ring_;
 
 	// FFmpeg contexts (owned by demux thread, accessed only there)
 	AVFormatContext*  ifmt_ctx_   = nullptr;
@@ -149,16 +167,26 @@ private:
 	int               dec_width_  = 0;
 	int               dec_height_ = 0;
 
+	// Audio contexts (demux thread)
+	int               audio_idx_    = -1;
+	AVCodecContext*   audio_dec_ctx_ = nullptr;
+	const AVCodec*    audio_decoder_ = nullptr;
+
 	// Encoder contexts (owned by encode thread)
 	AVCodecContext*   enc_ctx_    = nullptr;
 	const AVCodec*    encoder_    = nullptr;
 	SwsContext*       to_enc_     = nullptr;   // BGR24 → YUV420P
 	AVFrame*          enc_in_     = nullptr;   // pre-allocated YUV420P
+	int64_t           pts_base_us_ = 0;         // first frame capture time baseline
 
 	// Stats
 	std::atomic<int64_t> frames_decoded_{0};
 	std::atomic<int64_t> dropped_demux_{0};
 	std::atomic<int64_t> dropped_ai_{0};
+	std::atomic<int64_t> pruned_demux_{0};
+	std::atomic<int64_t> pruned_ai_{0};
+	std::atomic<int64_t> audio_dropped_{0};
+	std::atomic<int64_t> audio_pruned_{0};
 };
 
 } // namespace ffmpeg

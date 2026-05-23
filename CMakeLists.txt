@@ -118,6 +118,7 @@ set(FFMPEG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/FFmpegUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/RtspOutputAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/RtmpOutputAdapter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/AudioOutputAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/PipelineManager.cpp
 )

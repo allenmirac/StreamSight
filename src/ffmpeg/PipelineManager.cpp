@@ -52,12 +52,14 @@ PipelineStats PipelineManager::GetStats(const std::string& stream_id) const {
 	}
 	auto* p = it->second.get();
 	PipelineStats s;
-	s.frames_decoded      = p->FramesDecoded();
+	s.frames_decoded       = p->FramesDecoded();
 	s.frames_dropped_demux = p->FramesDroppedDemux();
-	s.frames_dropped_ai   = p->FramesDroppedAI();
-	s.decode_ring_fill    = p->DecodeRingFill();
-	s.process_ring_fill   = p->ProcessRingFill();
-	s.running             = p->IsRunning();
+	s.frames_dropped_ai    = p->FramesDroppedAI();
+	s.frames_pruned_demux  = p->FramesPrunedDemux();
+	s.frames_pruned_ai     = p->FramesPrunedAI();
+	s.decode_ring_fill     = p->DecodeRingFill();
+	s.process_ring_fill    = p->ProcessRingFill();
+	s.running              = p->IsRunning();
 	return s;
 }
 
