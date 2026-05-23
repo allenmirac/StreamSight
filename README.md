@@ -1,6 +1,7 @@
 # StreamSight
 
-> Real-time RTSP streaming server with AI-powered face detection and recognition — built in C++11.
+> AI-Augmented Live Stream Processing Platform — 自研 RTSP/RTP 协议栈 + FFmpeg C API 管线，
+> 在实时音视频链路中集成帧级 AI 处理与直播特效能力。
 
 [中文介绍](README_CN.md)
 
@@ -8,37 +9,29 @@
 
 ## Overview
 
-StreamSight extends a high-performance RTSP/RTP server with an AI analysis pipeline. Raw frames from a camera, video file, or remote RTSP source are analyzed for faces in real time, annotated with bounding boxes and names, encoded to H.264, and pushed to RTSP clients — all with a REST API for live result queries.
+StreamSight 是一个自研的 AI 增强型直播流处理平台。它在进程内完成
+"视频接入 → 解码 → AI 处理/特效叠加 → 编码 → 多协议输出"的全链路闭环。
+
+**核心特色:**
+- **自研 RTSP/RTP 协议栈（xop）**: 基于 Reactor 模式（epoll），支持 H.264/H.265/AAC，
+  处理后视频可通过网络被任意 RTSP 客户端拉流播放
+- **FFmpeg C API 进程内管线**: 3-stage 流水线（Demux+Decode → AI Process → Encode），
+  替代 fork+pipe 子进程方案，RingBuffer 背压 + FrameDropPolicy 自适应丢帧
+- **可扩展 EffectPlugin 体系**: 人脸检测识别（YuNet + ArcFace ONNX）作为首个插件 demo，
+  后续可扩展水印、马赛克、安全检测、美颜等
+- **RTMP 直播分发**: 内置 RTMP Push Client，对接外部 SRS/nginx-rtmp 实现大规模分发
 
 ```
-VideoSource → AI Analysis → Frame Overlay → H.264 Encode → RTSP/RTP → Clients
-                  ↓
-            REST API  +  JSON Event Log
+Ingest → StreamPipeline (Demux+Decode → AI Process → Encode) → Output Adapters
+              │                                      │
+              │  Stage2: AI Process                   │
+              │  ├── EffectChain (IEffectPlugin[])     │
+              │  └── Content Understanding (future)    │
+              │                                      │
+              ▼                                      ▼
+    RTSP 实时流输出 (自研协议栈)    RTMP Push (外部 SRS)
+    局域网/跨网段客户端直接拉流     大规模直播分发
 ```
-
----
-
-## Features
-
-**Streaming**
-- RTSP server and pusher based on Reactor (epoll on Linux, select on Windows)
-- H.264 / H.265 / G711A / AAC / VP8 codec support
-- Audio+video streaming (AAC audio integrated in ffmpeg_streamer)
-- Unicast (RTP over TCP, RTP over UDP) and multicast
-- Digest authentication (RFC 2617)
-- RTCP Sender Report (SR) — periodic NTP/RTP timestamp mapping for latency measurement
-
-**AI Analysis** *(requires OpenCV 4 + FFmpeg)*
-- Face detection via OpenCV DNN (YuFaceDetectNet / RetinaFace ONNX)
-- Face recognition via ArcFace ONNX — 512-D embeddings, cosine similarity
-- Configurable analysis rate (default 5 fps) to balance accuracy vs. CPU load
-- Live bounding box + name overlay on the outgoing RTSP stream
-
-**Output**
-- RTSP stream with real-time annotations
-- RTMP push (via FFmpeg C API pipeline)
-- REST HTTP API for querying current detections and event history
-- JSON Lines event log (`events.jsonl`)
 
 ---
 
@@ -49,42 +42,23 @@ VideoSource → AI Analysis → Frame Overlay → H.264 Encode → RTSP/RTP → 
 ```bash
 # Runtime + AI
 sudo apt install libopencv-dev ffmpeg
-# FFmpeg C API pipeline (for ffmpeg_streamer target)
+# FFmpeg C API pipeline
 sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
 ```
 
 ### Build
 
 ```bash
-# Make (primary)
-make -j$(nproc)
-
-# CMake (alternative, required for ffmpeg_streamer)
 mkdir -p build && cd build
 cmake .. && make -j$(nproc)
 ```
-
-Build outputs go to `bin/` (Make) or `build/bin/` (CMake).
-
-### Targets
-
-| Target | Description |
-|--------|-------------|
-| `rtsp_server` | Basic RTSP server |
-| `rtsp_pusher` | RTSP pusher (push to upstream server) |
-| `rtsp_h264_file` | Serve H.264 file over RTSP |
-| `rtsp_analysis_server` | Full pipeline: video source + AI + overlay + RTSP |
-| `rtsp_edge_analysis_server` | CDN edge-scheduling prototype |
-| `ffmpeg_streamer` | FFmpeg C API pipeline (demux→decode→AI→encode→RTSP/RTMP, audio+video) |
 
 ### Download AI Models
 
 ```bash
 mkdir -p models
-# Face detection (YuNet)
 wget -O models/face_detection.onnx \
   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
-# Face recognition (SFace / ArcFace)
 wget -O models/face_recognition.onnx \
   https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx
 ```
@@ -92,30 +66,31 @@ wget -O models/face_recognition.onnx \
 ### Run
 
 ```bash
-# Stream a local H.264 file with AI analysis
-./rtsp_analysis_server --source file --input test.h264 --port 8554 --http-port 8080
+# Primary demo: file input with AI analysis + RTSP output
+./build/bin/ffmpeg_streamer --input test.mp4 --port 8554
 
-# USB camera
-./rtsp_analysis_server --source camera --device 0 --port 8554 --http-port 8080
+# Camera input
+./build/bin/ffmpeg_streamer --source camera --input 0 --port 8554
 
-# Pull and re-stream an RTSP source
-./rtsp_analysis_server --source rtsp --input rtsp://192.168.1.100:554/stream --port 8554
+# Skip AI processing
+./build/bin/ffmpeg_streamer --input test.mp4 --no-ai --port 8554
 
-# Encode only, skip AI
-./rtsp_analysis_server --source file --input test.h264 --no-ai --port 8554
-
-# FFmpeg C API pipeline (audio+video, RTMP support)
-./ffmpeg_streamer --input test.h264 --port 8554
-./ffmpeg_streamer --input test.h264 --rtmp rtmp://localhost/live/test --port 8554
+# RTMP output (requires SRS running, see below)
+./build/bin/ffmpeg_streamer --input test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
 ```
 
 ### Watch & Query
 
 ```bash
-ffplay rtsp://localhost:8554/live            # play annotated stream
+# RTSP (direct, no external server needed)
+ffplay rtsp://localhost:8554/live
 
-curl http://localhost:8080/api/current       # current frame faces
-curl http://localhost:8080/api/status        # server uptime
+# From another machine on the LAN
+ffplay rtsp://192.168.1.x:8554/live
+
+# HTTP API
+curl http://localhost:8080/api/current       # current frame detections
+curl http://localhost:8080/api/status        # server status
 
 # Register a face
 curl -X POST http://localhost:8080/api/faces \
@@ -124,41 +99,71 @@ curl -X POST http://localhost:8080/api/faces \
 
 ---
 
+## RTMP Distribution
+
+StreamSight 的 `RtmpOutputAdapter` 是 RTMP Push Client，用于将处理后流推送到外部 RTMP Server。
+
+**rtmp://localhost:8888/live/test → Connection refused**
+这是因为本机没有 RTMP Server 监听 8888 端口。需要先启动外部 RTMP Server。
+
+```bash
+# Start SRS
+docker-compose up -d srs
+
+# StreamSight pushes processed stream to SRS
+./build/bin/ffmpeg_streamer --input test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
+
+# Watch via RTMP
+ffplay rtmp://localhost:1935/live/stream
+```
+
+详细说明见 [docs/rtmp-distribution.md](docs/rtmp-distribution.md).
+
+---
+
+## Effect Plugin Architecture
+
+```cpp
+// IEffectPlugin: 所有特效/分析插件的统一接口
+class IEffectPlugin {
+    virtual std::string Name() const = 0;
+    virtual bool Process(uint8_t* bgr, int w, int h, int linesize,
+                         EffectResult* result) = 0;
+};
+
+// EffectChain: 有序执行多个插件
+EffectChain chain;
+chain.AddPlugin(std::make_shared<FaceRecognitionPlugin>(...));
+chain.AddPlugin(std::make_shared<WatermarkPlugin>(...));  // future
+chain.ProcessFrame(bgr_data, width, height, linesize, results);
+```
+
+当前内置: `FaceRecognitionPlugin` (人脸检测 + 识别 + 框选叠加)
+
+---
+
 ## Project Structure
 
 ```
 src/
-├── net/      Reactor networking (EventLoop, epoll, Channel, TcpServer)
-├── xop/      RTSP/RTP protocol (RtspServer, MediaSession, H264Source, H265Source,
-│             AACSource, G711ASource, VP8Source, RtcpMessage, SeiLatencyMarker)
-├── ai/       AI analysis pipeline (VideoSource, FaceDetector, FaceRecognizer,
-│             FaceDatabase, FrameAnalyzer, FrameOverlay, H264Encoder, HttpApiServer)
-├── ffmpeg/   FFmpeg C API pipeline (FFmpegStreamer, StreamPipeline,
-│             PipelineManager, RtspOutputAdapter, RtmpOutputAdapter,
-│             MultiOutputAdapter, AudioOutputAdapter, FrameDropPolicy)
-├── control/  Control plane (Classifier, Scheduler, PipelineRunner, StreamManager)
-├── cdn_sim/  Edge node simulation (EdgeNode, EdgeNodePool, ThreadPool)
-├── observe/  MetricsRegistry, LatencyTracer, PithyPrint
-└── 3rdpart/  cpp-httplib (HTTP), md5
+├── net/       Reactor 网络框架 (EventLoop, epoll, TcpServer, RingBuffer)
+├── xop/       RTSP/RTP 协议实现 (RtspServer, MediaSession, H264Source...)
+├── ffmpeg/    FFmpeg C API 管线 (StreamPipeline, IOutputAdapter...)
+├── effect/    EffectPlugin 插件体系 (IEffectPlugin, EffectChain, FaceRecognitionPlugin)
+├── ai/        AI 模型加载 (FaceDetector, FaceRecognizer, FaceDatabase)
+├── control/   流管理 + 调度
+├── observe/   可观测性 (MetricsRegistry, LatencyTracer)
+└── cdn_sim/   CDN 边缘模拟
+
 example/
-├── rtsp_server.cpp                Basic RTSP server
-├── rtsp_pusher.cpp                RTSP pusher
-├── rtsp_h264_file.cpp             File streaming example
-├── rtsp_analysis_server.cpp       Full AI analysis pipeline
-├── rtsp_edge_analysis_server.cpp  CDN edge-scheduling prototype
-└── ffmpeg_streamer.cpp            FFmpeg C API pipeline (audio+video, RTMP)
+├── ffmpeg_streamer.cpp     ★ 主入口: 完整 AI 管线 + RTSP/RTMP 输出
+├── rtsp_analysis_server.cpp  LEGACY: 旧 fork+pipe 路径
+└── ...
+
 docs/
-├── StreamSight项目架构说明文档.md   Architecture (Chinese)
-├── StreamSight项目深度分析与优化方案.md  Optimization analysis
-├── StreamSight现有系统延迟测试方案.md    Latency testing plan
-├── cdn_sim_design.md               CDN simulation design
-├── api.md                          REST API reference
-├── setup.md                        Installation and run guide
-├── interview.md                    Technical deep-dive Q&A
-└── latency_testing_implementation.md  Latency tracer implementation
-models/                             ONNX model files (download separately)
-scripts/
-└── tune_kernel.sh                  Kernel tuning for low-latency streaming
+├── rtmp-distribution.md     RTMP 分发架构说明
+├── api.md                   REST API 文档
+└── ...
 ```
 
 ---
@@ -167,14 +172,20 @@ scripts/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/status` | Server uptime and port |
+| GET | `/api/status` | Server status |
 | GET | `/api/current` | Latest frame analysis result |
 | GET | `/api/events?limit=N` | Recent detection events |
-| GET | `/api/faces` | Registered face names |
-| POST | `/api/faces` | Register face (multipart: `name` + `image`) |
+| GET | `/api/faces` | Registered faces |
+| POST | `/api/faces` | Register face (multipart: name + image) |
 | DELETE | `/api/faces/{name}` | Remove face |
 
-Full documentation: [docs/api.md](docs/api.md)
+---
+
+## Roadmap
+
+- **Phase 1** (current): 定位修正 + EffectPlugin 接口 + 代码债务清理
+- **Phase 2**: StreamSession 抽象 + HTTP API 平台化 + Effect 动态配置
+- **Phase 3**: 视频摘要 + Content Understanding + Agent 工具接口预留
 
 ---
 
@@ -182,17 +193,11 @@ Full documentation: [docs/api.md](docs/api.md)
 
 | Component | Version |
 |-----------|---------|
-| Compiler | GCC 4.8+ / VS2015+ (C++11) |
+| Compiler | GCC 4.8+ / Clang (C++11) |
 | OpenCV | 4.x with DNN module |
-| FFmpeg | 4.x+ (`ffmpeg` binary; libavformat/libavcodec/libavutil/libswscale dev for ffmpeg_streamer) |
-| CMake | 3.10+ (for CMake build / ffmpeg_streamer target) |
+| FFmpeg | 4.x+ (libavformat/libavcodec/libavutil/libswscale) |
+| CMake | 3.10+ |
 | OS | Linux (epoll) / Windows (select) |
-
----
-
-## Architecture
-
-See [docs/StreamSight项目架构说明文档.md](docs/StreamSight项目架构说明文档.md) for the full system diagram and thread model.
 
 ---
 
