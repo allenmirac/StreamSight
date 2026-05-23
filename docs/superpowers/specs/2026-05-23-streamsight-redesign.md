@@ -5,30 +5,30 @@ Status: approved
 
 ## 1. Project Positioning
 
-**定位**: AI-Augmented Live Stream Processing Platform / Edge Intelligent Streaming Node
+**定位**: AI-Augmented Live Stream Processing Platform
 
-StreamSight 不是 SRS 替代品，而是一个自研的 AI 增强型直播流处理平台。核心差异化：在直播链路中嵌入帧级 AI 处理和内容理解能力。
+StreamSight 是一个自研的 AI 增强型直播流处理平台，在实时音视频链路中嵌入帧级 AI 处理、直播特效和内容理解能力。核心特色：自研 RTSP/RTP 协议栈 + FFmpeg C API 进程内编解码管线 + 可扩展 EffectPlugin 插件体系。
 
-**一句话**: StreamSight is a self-built AI-augmented live stream processing platform featuring an in-house RTSP server and FFmpeg C API pipeline, enabling real-time video effects, face recognition, and content understanding in the media path.
+**一句话**: StreamSight is a self-built AI-augmented live stream processing platform featuring an in-house RTSP/RTP protocol stack and FFmpeg C API pipeline, enabling real-time video effects, face recognition, and content understanding in the media path.
 
 **三句话**:
-- StreamSight 自研了 RTSP/RTP 协议栈（xop）和基于 FFmpeg C API 的进程内编解码管线，实现从多源输入到帧级 AI 处理再到多协议输出的全链路闭环
-- 平台提供可扩展的 EffectPlugin 插件体系，人脸检测识别作为首个插件 demo，后续可扩展水印、安全检测、美颜等
-- 通过 RTMP Push Client 对接外部 SRS/nginx-rtmp 分发层，预留 Content Understanding 层和 Agent 工具接口
+- 自研 RTSP/RTP 协议栈（xop），处理后视频可通过 RTSP 实时流输出，支持局域网和跨网段客户端直接拉流播放
+- 基于 FFmpeg C API 构建进程内 3-stage 流媒体管线（Demux→AI→Encode），RingBuffer 背压 + FrameDropPolicy 自适应丢帧
+- 提供可扩展的 IEffectPlugin/EffectChain 插件体系（人脸检测识别为首个 demo），通过 RTMP Push Client 对接外部 SRS 分发层，预留 Content Understanding 层和 Agent 工具接口
 
 ## 2. RTMP Decision: External Distribution Only
 
-**决策**: 不自研 RTMP Server
+**决策**: 不自研 RTMP Server，聚焦处理管线
 
 **理由**:
-- RTMP Server 已有成熟方案（SRS/nginx-rtmp），重复实现不带来新知识
-- StreamSight 核心价值在"处理管线 + AI 增强"，不在协议分发层
-- RTSP 自研已展示了协议工程能力
-- RtmpOutputAdapter（RTMP Push Client）遵循 IOutputAdapter 接口，未来如需 RTMP Input 可扩展
+- RTSP 自研已充分展示了协议工程能力，RTMP Server 重复建设协议层不带来额外技术亮点
+- 项目核心价值在"处理管线 + AI 增强"，RTMP Push Client 作为输出适配器已满足分发需求
+- 架构上保留扩展点：RtmpOutputAdapter 遵循 IOutputAdapter，未来可按同样模式添加 RtmpInputAdapter
+- RTMP 分发交给成熟的外部组件，团队可以专注差异化能力
 
-**保留**: `ffmpeg/RtmpOutputAdapter` — RTMP Push Client，将处理后流推到外部 SRS/nginx-rtmp
+**保留**: `ffmpeg/RtmpOutputAdapter` — RTMP Push Client，将处理后流推到外部 RTMP Server
 
-**外部依赖**: Docker SRS / nginx-rtmp，提供 docker-compose.yml
+**外部依赖**: Docker SRS / nginx-rtmp，提供 docker-compose.yml 和配置文档
 
 ## 3. Code Duplication Analysis
 
@@ -57,8 +57,9 @@ Ingest → StreamPipeline (Demux+Decode → AI Process → Encode) → Output Ad
               │  └── Content Understanding (async)     │
               │                                      │
               ▼                                      ▼
-         RTSP (自研)  +  RTMP Push (外部 SRS)
-         同一处理后的流，画面和结果完全一致
+    RTSP 实时流输出 (自研协议栈)    RTMP Push (外部 SRS)
+    局域网/跨网段客户端直接拉流     大规模直播分发
+    同一处理后的流，画面和结果完全一致
 ```
 
 ### 4.2 Module Layout
@@ -165,10 +166,10 @@ GET    /api/v1/sessions/:id/results  detection/summary/events
 ## 7. Resume Description
 
 **Current (after Phase 1)**:
-- 自研 RTSP/RTP 协议栈（~3000 行），基于 Reactor 模式（epoll）实现异步事件驱动，支持 H.264/H.265/AAC
+- 自研 RTSP/RTP 协议栈（~3000 行），基于 Reactor 模式（epoll）实现异步事件驱动，支持 H.264/H.265/AAC 多格式
 - 基于 FFmpeg C API 构建进程内 3-stage 流媒体管线，RingBuffer 背压 + FrameDropPolicy 自适应丢帧
-- 实现可扩展 IEffectPlugin/EffectChain 插件体系，集成 ONNX 人脸检测（YuNet）和识别（ArcFace）
-- RTMP Push Client 对接 SRS 分发层，支持 RTSP 本地预览 + RTMP 直播分发双输出
+- 实现可扩展 IEffectPlugin/EffectChain 插件体系，集成 ONNX 人脸检测（YuNet）和识别（ArcFace）作为首个处理插件
+- 支持 RTSP 实时流输出（局域网/跨网段客户端直接拉流）+ RTMP Push 直播分发双输出
 - HTTP API 查询实时检测结果、运行指标和历史事件
 
 **Future (after Phase 2-3)**:
