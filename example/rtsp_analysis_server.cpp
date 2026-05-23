@@ -1,3 +1,10 @@
+// rtsp_analysis_server.cpp — LEGACY
+// Uses deprecated fork+pipe H264Encoder. Prefer ffmpeg_streamer.cpp which
+// uses FFmpeg C API in-process pipeline with IOutputAdapter.
+// Kept for reference. Target still builds but is no longer the primary demo.
+//
+// Full AI analysis pipeline with RTSP output.
+
 #include "xop/RtspServer.h"
 #include "xop/H264Source.h"
 #include "net/Timer.h"
