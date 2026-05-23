@@ -95,7 +95,7 @@ bool FaceRecognitionPlugin::Process(uint8_t* bgr_data, int width, int height,
     return true;
 }
 
-const ai::AnalysisResult& FaceRecognitionPlugin::GetLastResult() const {
+ai::AnalysisResult FaceRecognitionPlugin::GetLastResult() const {
     static ai::AnalysisResult empty;
     if (!analyzer_) return empty;
     return analyzer_->GetLastResult();

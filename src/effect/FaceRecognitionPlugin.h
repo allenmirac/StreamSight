@@ -52,7 +52,7 @@ public:
     bool ModifiesFrame() const override { return true; }
 
     // Access underlying results (for API serving)
-    const ai::AnalysisResult& GetLastResult() const;
+    ai::AnalysisResult GetLastResult() const;
 
     // Expose internal components as raw pointers for HttpApiServer.
     // HttpApiServer does not own these — FaceRecognitionPlugin keeps them alive.
