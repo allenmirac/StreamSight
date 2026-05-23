@@ -1,3 +1,8 @@
+// PipelineRunner.h — LEGACY
+// Uses the old fork+pipe H264Encoder path. Prefer ffmpeg::StreamPipeline
+// for new development. Kept for reference and rtsp_edge_analysis_server.
+//
+// Executes a full AI analysis pipeline on an assigned edge node.
 #pragma once
 #include "control/StreamTask.h"
 #include "observe/MetricsRegistry.h"
