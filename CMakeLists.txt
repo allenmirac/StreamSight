@@ -125,6 +125,7 @@ set(FFMPEG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/AudioOutputAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/PipelineManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamSession.cpp
 )
 
 # Effect layer
@@ -180,6 +181,7 @@ if(BUILD_LEGACY_TARGETS)
         ${CONTROL_SRCS}
         ${CDN_SIM_SRCS}
         ${FFMPEG_SRCS}
+        ${EFFECT_SRCS}
     )
     target_link_libraries(rtsp_edge_analysis_server ${COMMON_LIBS} ${FFMPEG_LIBS})
     target_compile_options(rtsp_edge_analysis_server PRIVATE -Wall -Wextra)
@@ -213,3 +215,23 @@ if(BUILD_LEGACY_TARGETS)
     message(STATUS "  - rtsp_edge_analysis_server [LEGACY]")
 endif()
 message(STATUS "  - ffmpeg_streamer")
+
+# ── Tests ────────────────────────────────────────────────────────────────
+# test_stream_session: structural tests (no FFmpeg/OpenCV runtime needed)
+if(FFMPEG_FOUND AND OpenCV_FOUND)
+    add_executable(test_stream_session
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_stream_session.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+        ${FFMPEG_SRCS}
+        ${EFFECT_SRCS}
+    )
+    target_link_libraries(test_stream_session
+        ${COMMON_LIBS}
+        ${FFMPEG_LIBS}
+    )
+    target_compile_options(test_stream_session PRIVATE -Wall -Wextra)
+    message(STATUS "  - test_stream_session")
+else()
+    message(STATUS "  - test_stream_session (requires FFmpeg + OpenCV, skipped)")
+endif()
