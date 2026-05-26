@@ -2,6 +2,8 @@
 // This fork+pipe encoder is superseded by ffmpeg::StreamPipeline which uses
 // FFmpeg C API (libavcodec) in-process with no fork/pipe overhead.
 //
+// Do NOT use in new code. Only included when BUILD_LEGACY_TARGETS=ON.
+//
 // Software H.264 encoder wrapping OpenCV VideoWriter (or optionally
 // a direct FFmpeg invocation).  Encodes BGR cv::Mat frames into
 // Annex-B H.264 NAL data compatible with xop::AVFrame.

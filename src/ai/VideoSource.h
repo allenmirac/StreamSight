@@ -8,6 +8,11 @@
 #ifndef AI_VIDEO_SOURCE_H
 #define AI_VIDEO_SOURCE_H
 
+// DEPRECATED — This abstract video source interface is superseded by FFmpeg C API
+// input handling in ffmpeg::FFmpegStreamer and ffmpeg::StreamPipeline.
+// Only used by legacy targets (rtsp_analysis_server, PipelineRunner).
+// Do NOT use in new code.
+
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <memory>

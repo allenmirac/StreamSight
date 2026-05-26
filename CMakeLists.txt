@@ -22,6 +22,9 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Legacy targets (deprecated fork+pipe path)
+option(BUILD_LEGACY_TARGETS "Build legacy targets (rtsp_analysis_server, rtsp_edge_analysis_server)" OFF)
+
 # Include directories
 set(INC_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -157,28 +160,30 @@ add_executable(rtsp_h264_file
 )
 target_link_libraries(rtsp_h264_file ${COMMON_LIBS})
 
-# Target 4: rtsp_analysis_server
-add_executable(rtsp_analysis_server
-    ${CMAKE_CURRENT_SOURCE_DIR}/example/rtsp_analysis_server.cpp
-    ${COMMON_SRCS}
-    ${AI_SRCS}
-)
-target_link_libraries(rtsp_analysis_server ${COMMON_LIBS})
+# Target 4: rtsp_analysis_server [LEGACY — fork+pipe path]
+if(BUILD_LEGACY_TARGETS)
+    add_executable(rtsp_analysis_server
+        ${CMAKE_CURRENT_SOURCE_DIR}/example/rtsp_analysis_server.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+    )
+    target_link_libraries(rtsp_analysis_server ${COMMON_LIBS})
+    target_compile_options(rtsp_analysis_server PRIVATE -Wall -Wextra)
+endif()
 
-# Target 5: rtsp_edge_analysis_server (new)
-add_executable(rtsp_edge_analysis_server
-    ${CMAKE_CURRENT_SOURCE_DIR}/example/rtsp_edge_analysis_server.cpp
-    ${COMMON_SRCS}
-    ${AI_SRCS}
-    ${CONTROL_SRCS}
-    ${CDN_SIM_SRCS}
-    ${FFMPEG_SRCS}
-)
-target_link_libraries(rtsp_edge_analysis_server ${COMMON_LIBS} ${FFMPEG_LIBS})
-
-# Optional: Add compile features or specific flags per target
-target_compile_options(rtsp_analysis_server PRIVATE -Wall -Wextra)
-target_compile_options(rtsp_edge_analysis_server PRIVATE -Wall -Wextra)
+# Target 5: rtsp_edge_analysis_server [LEGACY — fork+pipe path]
+if(BUILD_LEGACY_TARGETS)
+    add_executable(rtsp_edge_analysis_server
+        ${CMAKE_CURRENT_SOURCE_DIR}/example/rtsp_edge_analysis_server.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+        ${CONTROL_SRCS}
+        ${CDN_SIM_SRCS}
+        ${FFMPEG_SRCS}
+    )
+    target_link_libraries(rtsp_edge_analysis_server ${COMMON_LIBS} ${FFMPEG_LIBS})
+    target_compile_options(rtsp_edge_analysis_server PRIVATE -Wall -Wextra)
+endif()
 
 # Target 6: ffmpeg_streamer (FFmpeg C API full pipeline)
 if(FFMPEG_FOUND AND OpenCV_FOUND)
@@ -203,6 +208,8 @@ message(STATUS "Build targets:")
 message(STATUS "  - rtsp_server")
 message(STATUS "  - rtsp_pusher")
 message(STATUS "  - rtsp_h264_file")
-message(STATUS "  - rtsp_analysis_server")
-message(STATUS "  - rtsp_edge_analysis_server")
+if(BUILD_LEGACY_TARGETS)
+    message(STATUS "  - rtsp_analysis_server [LEGACY]")
+    message(STATUS "  - rtsp_edge_analysis_server [LEGACY]")
+endif()
 message(STATUS "  - ffmpeg_streamer")
