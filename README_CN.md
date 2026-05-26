@@ -20,6 +20,10 @@ StreamSight 是一个自研的 AI 增强型直播流处理平台。它在进程�
 - **可扩展 EffectPlugin 体系**: 人脸检测识别（YuNet + ArcFace ONNX）作为首个插件 demo，
   后续可扩展水印、马赛克、安全检测、美颜等
 - **RTMP 直播分发**: 内置 RTMP Push Client，对接外部 SRS/nginx-rtmp 实现大规模分发
+- **EffectFactory**: 基于 JSON 配置的动态插件创建
+- **EventBus**: 线程安全的结构化事件发布/订阅
+- **StreamSession**: 单会话抽象（启动/停止/获取状态）
+- **StreamApiServer**: 合并 HTTP API（session CRUD + 旧版路由）
 
 ```
 Ingest → StreamPipeline (Demux+Decode → AI Process → Encode) → Output Adapters
@@ -147,16 +151,17 @@ chain.ProcessFrame(bgr_data, width, height, linesize, results);
 src/
 ├── net/       Reactor 网络框架 (EventLoop, epoll, TcpServer, RingBuffer)
 ├── xop/       RTSP/RTP 协议实现 (RtspServer, MediaSession, H264Source...)
-├── ffmpeg/    FFmpeg C API 管线 (StreamPipeline, IOutputAdapter...)
-├── effect/    EffectPlugin 插件体系 (IEffectPlugin, EffectChain, FaceRecognitionPlugin)
-├── ai/        AI 模型加载 (FaceDetector, FaceRecognizer, FaceDatabase)
-├── control/   流管理 + 调度
-├── observe/   可观测性 (MetricsRegistry, LatencyTracer)
+├── ffmpeg/    FFmpeg C API 管线 (StreamPipeline, StreamSession, IOutputAdapter...)
+├── effect/    EffectPlugin 插件体系 (IEffectPlugin, EffectChain, FaceRecognitionPlugin, EffectFactory)
+├── api/       HTTP REST API (StreamApiServer — session CRUD, 特效配置, 性能指标)
+├── ai/        AI 模型加载 (FaceDetector, FaceRecognizer, FaceDatabase, FrameAnalyzer)
+├── control/   流管理 + 调度 (LEGACY)
+├── observe/   可观测性 (MetricsRegistry, LatencyTracer, EventBus)
 └── cdn_sim/   CDN 边缘模拟
 
 example/
-├── ffmpeg_streamer.cpp     ★ 主入口: 完整 AI 管线 + RTSP/RTMP 输出
-├── rtsp_analysis_server.cpp  LEGACY: 旧 fork+pipe 路径
+├── ffmpeg_streamer.cpp        ★ 主入口: StreamSession + API server
+├── rtsp_analysis_server.cpp     LEGACY (需要 BUILD_LEGACY_TARGETS=ON)
 └── ...
 
 docs/
@@ -169,14 +174,23 @@ docs/
 
 ## REST API 接口
 
+所有路由由 StreamApiServer 在单一端口（默认 8080）提供：
+
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| GET | `/api/status` | 服务运行状态 |
-| GET | `/api/current` | 当前帧分析结果 |
+| GET | `/api/status` | 服务运行状态 + 运行时长 |
+| GET | `/api/current` | 当前帧检测结果 |
 | GET | `/api/events?limit=N` | 最近检测事件 |
 | GET | `/api/faces` | 已注册人脸列表 |
 | POST | `/api/faces` | 注册人脸 (multipart: name + image) |
 | DELETE | `/api/faces/{name}` | 删除人脸 |
+| GET | `/api/latency/stats` | 管线延迟百分位数 |
+| GET | `/api/v1/sessions` | 列出所有会话 |
+| POST | `/api/v1/sessions` | 创建会话 (JSON body) |
+| GET | `/api/v1/sessions/:id` | 会话状态 + 指标 |
+| DELETE | `/api/v1/sessions/:id` | 停止并删除会话 |
+| PUT | `/api/v1/sessions/:id/effects` | 更新特效配置 (JSON body) |
+| GET | `/api/v1/sessions/:id/results` | 按会话查询检测结果 |
 
 ---
 

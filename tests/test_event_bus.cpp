@@ -19,7 +19,11 @@ static int tests_failed = 0;
     else { std::cerr << "FAIL: " << #cond << " at " << __FILE__ << ":" << __LINE__ << std::endl; tests_failed++; } \
 } while(0)
 
+#ifndef TEST_SMOKE_BUILD
 int main() {
+#else
+int run_event_bus_tests() {
+#endif
     // Test 1: single subscriber receives events
     {
         streamsight::EventBus<TestEvent> bus;

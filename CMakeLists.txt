@@ -262,3 +262,49 @@ if(FFMPEG_FOUND AND OpenCV_FOUND)
 else()
     message(STATUS "  - test_api_server (requires FFmpeg + OpenCV, skipped)")
 endif()
+
+# test_event_bus: header-only, just needs pthread
+add_executable(test_event_bus
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_event_bus.cpp
+)
+target_link_libraries(test_event_bus pthread)
+target_compile_options(test_event_bus PRIVATE -Wall -Wextra)
+message(STATUS "  - test_event_bus")
+
+# test_effect_factory: needs AI + Effect sources
+if(FFMPEG_FOUND AND OpenCV_FOUND)
+    add_executable(test_effect_factory
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_effect_factory.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+        ${EFFECT_SRCS}
+    )
+    target_link_libraries(test_effect_factory
+        ${COMMON_LIBS}
+        ${FFMPEG_LIBS}
+    )
+    target_compile_options(test_effect_factory PRIVATE -Wall -Wextra)
+    message(STATUS "  - test_effect_factory")
+else()
+    message(STATUS "  - test_effect_factory (requires FFmpeg + OpenCV, skipped)")
+endif()
+
+# BUILD_TESTS: unified test target
+option(BUILD_TESTS "Build all test binaries" OFF)
+if(BUILD_TESTS)
+    add_executable(test_smoke
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_smoke_driver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_event_bus.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_effect_factory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_stream_session.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_api_server.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+        ${FFMPEG_SRCS}
+        ${EFFECT_SRCS}
+        ${API_SRCS}
+    )
+    target_link_libraries(test_smoke ${COMMON_LIBS} ${FFMPEG_LIBS})
+    target_compile_options(test_smoke PRIVATE -Wall -Wextra -DTEST_SMOKE_BUILD)
+    message(STATUS "  - test_smoke (all tests)")
+endif()

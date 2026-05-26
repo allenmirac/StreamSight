@@ -20,6 +20,10 @@ StreamSight 是一个自研的 AI 增强型直播流处理平台。它在进程�
 - **可扩展 EffectPlugin 体系**: 人脸检测识别（YuNet + ArcFace ONNX）作为首个插件 demo，
   后续可扩展水印、马赛克、安全检测、美颜等
 - **RTMP 直播分发**: 内置 RTMP Push Client，对接外部 SRS/nginx-rtmp 实现大规模分发
+- **EffectFactory**: JSON-configurable plugin creation
+- **EventBus**: Thread-safe structured event pub/sub
+- **StreamSession**: Single-session abstraction (Start/Stop/GetStatus)
+- **StreamApiServer**: Merged HTTP API with session CRUD + legacy routes
 
 ```
 Ingest → StreamPipeline (Demux+Decode → AI Process → Encode) → Output Adapters
@@ -148,16 +152,17 @@ chain.ProcessFrame(bgr_data, width, height, linesize, results);
 src/
 ├── net/       Reactor 网络框架 (EventLoop, epoll, TcpServer, RingBuffer)
 ├── xop/       RTSP/RTP 协议实现 (RtspServer, MediaSession, H264Source...)
-├── ffmpeg/    FFmpeg C API 管线 (StreamPipeline, IOutputAdapter...)
-├── effect/    EffectPlugin 插件体系 (IEffectPlugin, EffectChain, FaceRecognitionPlugin)
-├── ai/        AI 模型加载 (FaceDetector, FaceRecognizer, FaceDatabase)
-├── control/   流管理 + 调度
-├── observe/   可观测性 (MetricsRegistry, LatencyTracer)
+├── ffmpeg/    FFmpeg C API 管线 (StreamPipeline, StreamSession, IOutputAdapter...)
+├── effect/    EffectPlugin 插件体系 (IEffectPlugin, EffectChain, FaceRecognitionPlugin, EffectFactory)
+├── api/       HTTP REST API (StreamApiServer — session CRUD, effect config, metrics)
+├── ai/        AI 模型加载 (FaceDetector, FaceRecognizer, FaceDatabase, FrameAnalyzer)
+├── control/   流管理 + 调度 (LEGACY)
+├── observe/   可观测性 (MetricsRegistry, LatencyTracer, EventBus)
 └── cdn_sim/   CDN 边缘模拟
 
 example/
-├── ffmpeg_streamer.cpp     ★ 主入口: 完整 AI 管线 + RTSP/RTMP 输出
-├── rtsp_analysis_server.cpp  LEGACY: 旧 fork+pipe 路径
+├── ffmpeg_streamer.cpp        ★ 主入口: StreamSession + API server
+├── rtsp_analysis_server.cpp     LEGACY (BUILD_LEGACY_TARGETS=ON)
 └── ...
 
 docs/
@@ -170,14 +175,23 @@ docs/
 
 ## REST API
 
+All routes served on a single port (default 8080) by StreamApiServer:
+
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/status` | Server status |
-| GET | `/api/current` | Latest frame analysis result |
+| GET | `/api/status` | Server status + uptime |
+| GET | `/api/current` | Latest frame detection result |
 | GET | `/api/events?limit=N` | Recent detection events |
 | GET | `/api/faces` | Registered faces |
 | POST | `/api/faces` | Register face (multipart: name + image) |
 | DELETE | `/api/faces/{name}` | Remove face |
+| GET | `/api/latency/stats` | Pipeline latency percentiles |
+| GET | `/api/v1/sessions` | List all sessions |
+| POST | `/api/v1/sessions` | Create session (JSON body) |
+| GET | `/api/v1/sessions/:id` | Session status + metrics |
+| DELETE | `/api/v1/sessions/:id` | Stop and remove session |
+| PUT | `/api/v1/sessions/:id/effects` | Update effect config (JSON body) |
+| GET | `/api/v1/sessions/:id/results` | Detection results per session |
 
 ---
 

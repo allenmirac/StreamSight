@@ -16,7 +16,11 @@ static int tests_failed = 0;
     else { std::cerr << "FAIL: " << #cond << " at " << __FILE__ << ":" << __LINE__ << std::endl; tests_failed++; } \
 } while(0)
 
+#ifndef TEST_SMOKE_BUILD
 int main() {
+#else
+int run_api_server_tests() {
+#endif
     // Test 1: create and list sessions
     {
         api::StreamApiServer server(19999);
