@@ -29,7 +29,9 @@ StreamSession::~StreamSession() {
 }
 
 bool StreamSession::Start() {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
     if (running_) return true;
+    if (stopped_) return false;  // single-use, no restart
 
     // ── RTSP server ─────────────────────────────────────────────────────
     event_loop_ = std::make_shared<xop::EventLoop>();
@@ -39,6 +41,7 @@ bool StreamSession::Start() {
         std::cerr << "[StreamSession] RTSP bind failed on port "
                   << cfg_.rtsp_port << std::endl;
         rtsp_server_.reset();
+        event_loop_.reset();
         return false;
     }
 
@@ -85,8 +88,8 @@ bool StreamSession::Start() {
     }
 
     // ── Run ─────────────────────────────────────────────────────────────
-    start_time_ = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    start_time_.store(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
 
     running_ = true;
     stop_ = false;
@@ -101,6 +104,7 @@ bool StreamSession::Start() {
 }
 
 void StreamSession::Stop() {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
     if (!running_) return;
     stop_ = true;
     running_ = false;
@@ -112,16 +116,18 @@ void StreamSession::Stop() {
     pipeline_mgr_.StopAll();
     if (face_plugin_) face_plugin_->Close();
     effect_chain_.Clear();
+    stopped_ = true;
 }
 
 SessionStatus StreamSession::GetStatus() const {
     SessionStatus s;
     s.running = running_;
     s.frames_processed = frame_count_;
-    if (start_time_ > 0) {
+    int64_t st = start_time_.load();
+    if (st > 0) {
         int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
-        s.uptime_seconds = now - start_time_;
+        s.uptime_seconds = now - st;
     }
     s.rtsp_port = cfg_.rtsp_port;
     s.http_port = cfg_.http_port;
@@ -196,6 +202,7 @@ void StreamSession::RunSerial() {
     FFmpegStreamer streamer(scfg);
     if (!streamer.Open()) {
         std::cerr << "[StreamSession] FFmpegStreamer open failed" << std::endl;
+        running_ = false;
         return;
     }
 
@@ -204,6 +211,7 @@ void StreamSession::RunSerial() {
     }
 
     streamer.Close();
+    running_ = false;
 }
 
 void StreamSession::RunParallel() {
@@ -246,6 +254,7 @@ void StreamSession::RunParallel() {
     }
 
     pipeline_mgr_.StopAll();
+    running_ = false;
 }
 
 }  // namespace ffmpeg

@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <mutex>
 #include <thread>
 #include <functional>
 #include <cstdint>
@@ -151,6 +152,8 @@ private:
     StreamSessionConfig  cfg_;
     std::atomic<bool>    running_{false};
     std::atomic<bool>    stop_{false};
+    std::atomic<bool>    stopped_{false};  // single-use: no restart after Stop
+    mutable std::mutex   lifecycle_mutex_;
 
     // RTSP infrastructure. EventLoop is explicitly started; RtspServer
     // shared_ptr keeps the server alive for the session lifetime.
@@ -177,7 +180,7 @@ private:
 
     // Stats
     std::atomic<int64_t>               frame_count_{0};
-    int64_t                            start_time_ = 0;
+    std::atomic<int64_t>               start_time_{0};
 };
 
 }  // namespace ffmpeg
