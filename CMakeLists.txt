@@ -235,3 +235,23 @@ if(FFMPEG_FOUND AND OpenCV_FOUND)
 else()
     message(STATUS "  - test_stream_session (requires FFmpeg + OpenCV, skipped)")
 endif()
+
+# test_api_server: structural tests for StreamApiServer
+if(FFMPEG_FOUND AND OpenCV_FOUND)
+    add_executable(test_api_server
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_api_server.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/api/StreamApiServer.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+        ${FFMPEG_SRCS}
+        ${EFFECT_SRCS}
+    )
+    target_link_libraries(test_api_server
+        ${COMMON_LIBS}
+        ${FFMPEG_LIBS}
+    )
+    target_compile_options(test_api_server PRIVATE -Wall -Wextra)
+    message(STATUS "  - test_api_server")
+else()
+    message(STATUS "  - test_api_server (requires FFmpeg + OpenCV, skipped)")
+endif()
