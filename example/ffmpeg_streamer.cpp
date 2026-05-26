@@ -6,21 +6,15 @@
 //        ./bin/ffmpeg_streamer --input test.h264 --rtmp rtmp://localhost/live/test --port 8554
 //        ./bin/ffmpeg_streamer --input /dev/video0 --source camera --port 8554
 
-#include "ffmpeg/FFmpegStreamer.h"
-#include "ffmpeg/StreamPipeline.h"
-#include "ffmpeg/PipelineManager.h"
-#include "ffmpeg/RtspOutputAdapter.h"
-#include "ffmpeg/RtmpOutputAdapter.h"
-#include "ffmpeg/FFmpegUtils.h"
+// StreamSight Platform (Phase 2)
+#include "ffmpeg/StreamSession.h"
+#include "api/StreamApiServer.h"
+#include "effect/FaceRecognitionPlugin.h"
 
-// Existing AI pipeline (same as rtsp_analysis_server)
 #include "xop/RtspServer.h"
 #include "xop/H264Source.h"
 #include "xop/AACSource.h"
 #include "net/EventLoop.h"
-#include "effect/EffectChain.h"
-#include "effect/FaceRecognitionPlugin.h"
-#include "ai/HttpApiServer.h"
 
 #include <iostream>
 #include <thread>
@@ -28,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <map>
+#include <sstream>
 #include <csignal>
 #include <cstdlib>
 
@@ -81,212 +76,95 @@ int main(int argc, char** argv) {
 
     auto args = ParseArgs(argc, argv);
 
-    int  width  = std::stoi(args["width"]);
-    int  height = std::stoi(args["height"]);
-    int  fps    = std::stoi(args["fps"]);
-    int  port   = std::stoi(args["port"]);
-    int  http_port = std::stoi(args["http-port"]);
-    int  bitrate   = std::stoi(args["bitrate"]);
-    int  enc_threads = std::stoi(args["threads"]);
-    bool no_ai   = (args["no-ai"] == "1");
-    int  afps    = std::stoi(args["analyze-fps"]);
-    bool is_camera = (args["source"] == "camera");
+    std::cout << "[Main] StreamSight Phase 2 — StreamSession + StreamApiServer"
+              << std::endl;
 
-    // Build input URL for FFmpeg
-    std::string input_url;
-    if (is_camera) {
-        input_url = "/dev/video" + args["input"];
-    } else {
-        input_url = args["input"];
+    // ── Build StreamSession config from CLI args ──────────────
+    ffmpeg::StreamSessionConfig cfg;
+    cfg.input_url       = (args["source"] == "camera")
+                          ? ("/dev/video" + args["input"]) : args["input"];
+    cfg.width           = std::stoi(args["width"]);
+    cfg.height          = std::stoi(args["height"]);
+    cfg.fps             = std::stoi(args["fps"]);
+    cfg.rtsp_port       = std::stoi(args["port"]);
+    cfg.http_port       = std::stoi(args["http-port"]);
+    cfg.bitrate         = std::stoi(args["bitrate"]);
+    cfg.enc_threads     = std::stoi(args["threads"]);
+    cfg.enable_ai       = (args["no-ai"] != "1");
+    cfg.analyze_fps     = std::stoi(args["analyze-fps"]);
+    cfg.rtmp_url        = args["rtmp"];
+    cfg.rtsp_suffix     = args["suffix"];
+    cfg.pipeline_mode   = args["pipeline-mode"];
+    cfg.ringbuf_size    = std::stoi(args["ringbuf-size"]);
+    cfg.max_frame_age_ms = std::stoi(args["max-frame-age-ms"]);
+    cfg.time_window_ms  = std::stoi(args["time-window-ms"]);
+    cfg.enable_audio    = (args["enable-audio"] != "0");
+
+    // Pass AI model paths via effects_json
+    if (cfg.enable_ai) {
+        std::ostringstream json;
+        json << "{"
+             << "\"detect_model\":\"" << args["detect-model"] << "\","
+             << "\"recog_model\":\"" << args["recog-model"] << "\","
+             << "\"face_db_path\":\"" << args["db"] << "\","
+             << "\"event_log_path\":\"" << args["log"] << "\","
+             << "\"analyze_fps\":" << cfg.analyze_fps
+             << "}";
+        cfg.effects_json = json.str();
     }
 
-    std::cout << "[Main] FFmpegStreamer demo" << std::endl;
-    std::cout << "[Main] input=" << input_url << " " << width << "x"
-              << height << " @" << fps << "fps" << std::endl;
-
-    // ── RTSP server (matches rtsp_analysis_server) ────────────────────────
-    auto event_loop  = std::make_shared<xop::EventLoop>();
-    auto rtsp_server = xop::RtspServer::Create(event_loop.get());
-
-    if (!rtsp_server->Start("0.0.0.0", port)) {
-        std::cerr << "[Main] RTSP server bind failed on port " << port
-                  << std::endl;
+    // ── Create and start session ─────────────────────────────
+    auto session = std::make_shared<ffmpeg::StreamSession>(cfg);
+    if (!session->Start()) {
+        std::cerr << "[Main] StreamSession start failed" << std::endl;
         return 1;
     }
 
-    xop::MediaSession* session = xop::MediaSession::CreateNew(args["suffix"]);
-    session->AddSource(xop::channel_0, xop::H264Source::CreateNew(fps));
-    session->AddSource(xop::channel_1, xop::AACSource::CreateNew(44100, 2, true));
-    session->AddNotifyConnectedCallback(
-        [](xop::MediaSessionId, std::string ip, uint16_t p) {
-            std::cout << "[RTSP] Client connected: " << ip << ":" << p
-                      << std::endl;
-        });
-    session->AddNotifyDisconnectedCallback(
-        [](xop::MediaSessionId, std::string ip, uint16_t p) {
-            std::cout << "[RTSP] Client disconnected: " << ip << ":" << p
-                      << std::endl;
-        });
-    xop::MediaSessionId session_id = rtsp_server->AddSession(session);
-
-    std::cout << "[Main] RTSP: rtsp://localhost:" << port
-              << "/" << args["suffix"] << std::endl;
-
-    // ── EffectChain with FaceRecognitionPlugin ─────────────────────────
-    streamsight::EffectChain effect_chain;
-    std::shared_ptr<streamsight::FaceRecognitionPlugin> face_plugin;
-    std::unique_ptr<ai::HttpApiServer> api_server;
-
-    if (!no_ai) {
-        streamsight::FaceRecognitionPlugin::Config face_cfg;
-        face_cfg.detect_model   = args["detect-model"];
-        face_cfg.recog_model    = args["recog-model"];
-        face_cfg.face_db_path   = args["db"];
-        face_cfg.event_log_path = args["log"];
-        face_cfg.analyze_fps    = afps;
-
-        face_plugin = std::make_shared<streamsight::FaceRecognitionPlugin>(face_cfg);
-        if (face_plugin->Open("")) {
-            effect_chain.AddPlugin(face_plugin);
-
-            api_server.reset(new ai::HttpApiServer(
-                http_port, face_plugin->GetDatabase(), face_plugin->GetRecognizer()));
-            api_server->Start();
-            std::cout << "[Main] HTTP API: http://localhost:" << http_port << std::endl;
-        } else {
-            std::cerr << "[Main] FaceRecognitionPlugin failed to open, "
-                      << "running without AI processing" << std::endl;
-            face_plugin.reset();
-        }
+    std::cout << "[Main] RTSP: rtsp://localhost:" << cfg.rtsp_port
+              << "/" << cfg.rtsp_suffix << std::endl;
+    if (!cfg.rtmp_url.empty()) {
+        std::cout << "[Main] RTMP: " << cfg.rtmp_url << std::endl;
     }
 
-    // ── FFmpegStreamer pipeline ──────────────────────────────────────────
-    ffmpeg::StreamerConfig cfg;
-    cfg.input_url  = input_url;
-    cfg.fps        = fps;
-    cfg.bitrate    = bitrate;
-    cfg.threads    = enc_threads;
-    cfg.output_width  = width;
-    cfg.output_height = height;
-    cfg.reconnect_on_eof = (args["source"] == "rtsp");
+    // ── HTTP API server (merged — replaces ai::HttpApiServer) ──
+    ai::FaceDatabase*   face_db = nullptr;
+    ai::FaceRecognizer* face_recog = nullptr;
 
-    // AI interception callback via EffectChain
-    if (!effect_chain.Empty()) {
-        cfg.frame_cb = [&](ffmpeg::FFmpegFrame& f) -> bool {
-            cv::Mat mat = ffmpeg::FrameToMat(f);
-
-            if (mat.cols != width || mat.rows != height) {
-                cv::resize(mat, mat, cv::Size(width, height));
-            }
-
-            std::vector<streamsight::EffectResult> results;
-            bool ok = effect_chain.ProcessFrame(
-                mat.data, mat.cols, mat.rows, (int)mat.step, results);
-
-            // Feed results to API server
-            if (api_server && face_plugin) {
-                const auto& analysis = face_plugin->GetLastResult();
-                api_server->UpdateResult(analysis);
-                api_server->AddEvent(analysis);
-            }
-
-            return ok;
-        };
+    // Get face components from the session's plugin for legacy API routes
+    auto face_plugin = std::dynamic_pointer_cast<streamsight::FaceRecognitionPlugin>(
+        session->GetFacePlugin());
+    if (face_plugin) {
+        face_db   = face_plugin->GetDatabase();
+        face_recog = face_plugin->GetRecognizer();
     }
 
-    // RTSP output adapter
-    auto rtsp_out = std::make_shared<ffmpeg::RtspOutputAdapter>(
-        rtsp_server.get(), session_id, xop::channel_0);
-    cfg.outputs.push_back(rtsp_out);
+    api::StreamApiServer api_server(cfg.http_port, face_db, face_recog);
+    std::string session_id = api_server.RegisterSession(session);
+    api_server.Start();
 
-    // Audio callback: push decoded PCM frames to RTSP audio channel
-    cfg.audio_cb = [&](const AVFrame* aframe) {
-        // Build xop::AVFrame from AVFrame data
-        int bytes_per_sample = av_get_bytes_per_sample((AVSampleFormat)aframe->format);
-        int data_size = aframe->nb_samples * aframe->channels * bytes_per_sample;
-
-        xop::AVFrame xop_frame(data_size);
-        xop_frame.type = xop::AUDIO_FRAME;
-        xop_frame.size = data_size;
-        xop_frame.timestamp = xop::H264Source::GetTimestamp();
-        memcpy(xop_frame.buffer.get(), aframe->data[0], data_size);
-
-        rtsp_server->PushFrame(session_id, xop::channel_1, xop_frame);
-    };
-
-    // Optional RTMP output
-    std::string rtmp_url = args["rtmp"];
-    if (!rtmp_url.empty()) {
-        auto rtmp_out = std::make_shared<ffmpeg::RtmpOutputAdapter>(rtmp_url);
-        cfg.outputs.push_back(rtmp_out);
-        std::cout << "[Main] RTMP: " << rtmp_url << std::endl;
-    }
-
-    // ── Run ──────────────────────────────────────────────────────────────
-    bool parallel_mode = (args["pipeline-mode"] == "parallel");
-    ffmpeg::PipelineManager pipeline_mgr;
-
-    // RTSP event loop thread
-    int ev_threads = std::stoi(args["eventloop-threads"]);
-    auto event_loop_parallel = std::make_shared<xop::EventLoop>((uint32_t)ev_threads);
-
-    std::thread rtsp_thread([&]() {
-        while (!g_stop) {
-            event_loop->Loop();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    });
-
-    if (parallel_mode) {
-        // ── Parallel mode: StreamPipeline (3-stage) ──────────────────────
-        ffmpeg::PipelineConfig pcfg;
-        pcfg.input_url  = cfg.input_url;
-        pcfg.fps        = cfg.fps;
-        pcfg.bitrate    = cfg.bitrate;
-        pcfg.threads    = cfg.threads;
-        pcfg.output_width  = cfg.output_width;
-        pcfg.output_height = cfg.output_height;
-        pcfg.frame_cb  = cfg.frame_cb;
-        pcfg.outputs   = cfg.outputs;
-        pcfg.decode_ring_size  = std::stoi(args["ringbuf-size"]);
-        pcfg.process_ring_size = std::stoi(args["ringbuf-size"]);
-        pcfg.audio_ring_size   = std::stoi(args["ringbuf-size"]) * 2;
-        pcfg.drop_policy.max_frame_age_us = std::stoi(args["max-frame-age-ms"]) * 1000LL;
-        pcfg.drop_policy.time_window_us = std::stoi(args["time-window-ms"]) * 1000LL;
-        pcfg.enable_backpressure = true;
-        pcfg.enable_audio       = (args["enable-audio"] == "1");
-        pcfg.audio_rtsp_server  = rtsp_server.get();
-        pcfg.audio_session_id   = session_id;
-        pcfg.audio_channel      = (int)xop::channel_1;
-
-        pipeline_mgr.AddStream("main", pcfg);
-        std::cout << "[Main] Running in PARALLEL mode (3-stage pipeline). Ctrl+C to stop." << std::endl;
-
-        while (!g_stop) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        }
-
-        pipeline_mgr.StopAll();
-    } else {
-        // ── Serial mode: FFmpegStreamer (original) ───────────────────────
-        ffmpeg::FFmpegStreamer streamer(cfg);
-
-        std::thread pipeline_thread([&]() {
-            streamer.Run(g_stop);
+    // Subscribe to session EventBus to feed legacy /api/current and /api/events
+    auto bus_handle = session->GetEventBus().Subscribe(
+        [&api_server](const ffmpeg::FrameProcessedEvent& e) {
+            ai::AnalysisResult r;
+            r.frame_id = static_cast<int>(e.frame_id);
+            r.timestamp_ms = e.timestamp_ms;
+            api_server.UpdateResult(r);
+            api_server.AddEvent(r);
         });
 
-        std::cout << "[Main] Running in SERIAL mode. Ctrl+C to stop." << std::endl;
+    std::cout << "[Main] HTTP API: http://localhost:" << cfg.http_port << std::endl;
+    std::cout << "[Main] Session ID: " << session_id << std::endl;
+    std::cout << "[Main] Running. Ctrl+C to stop." << std::endl;
 
-        pipeline_thread.join();
+    // ── Wait for stop signal ─────────────────────────────────
+    while (!g_stop) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
-    g_stop = true;
-    rtsp_thread.join();
-
-    // Cleanup
-    if (api_server)  api_server->Stop();
-    if (face_plugin) face_plugin->Close();
-    rtsp_server->RemoveSession(session_id);
+    // ── Cleanup ──────────────────────────────────────────────
+    session->GetEventBus().Unsubscribe(bus_handle);
+    api_server.Stop();
+    session->Stop();
 
     std::cout << "[Main] Done." << std::endl;
     return 0;

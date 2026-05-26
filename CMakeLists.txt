@@ -33,6 +33,7 @@ set(INC_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg
     ${CMAKE_CURRENT_SOURCE_DIR}/src/effect
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/api
     ${CMAKE_CURRENT_SOURCE_DIR}/src/3rdpart
 )
 include_directories(${INC_DIRS})
@@ -128,6 +129,11 @@ set(FFMPEG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamSession.cpp
 )
 
+# API layer
+set(API_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/api/StreamApiServer.cpp
+)
+
 # Effect layer
 set(EFFECT_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/effect/FaceRecognitionPlugin.cpp
@@ -195,6 +201,7 @@ if(FFMPEG_FOUND AND OpenCV_FOUND)
         ${AI_SRCS}
         ${FFMPEG_SRCS}
         ${EFFECT_SRCS}
+        ${API_SRCS}
     )
     target_link_libraries(ffmpeg_streamer
         ${COMMON_LIBS}
