@@ -156,8 +156,8 @@ int main(int argc, char** argv) {
     std::cout << "[Main] Session ID: " << session_id << std::endl;
     std::cout << "[Main] Running. Ctrl+C to stop." << std::endl;
 
-    // ── Wait for stop signal ─────────────────────────────────
-    while (!g_stop) {
+    // ── Wait for stop signal or session end ─────────────────
+    while (!g_stop && session->IsRunning()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
