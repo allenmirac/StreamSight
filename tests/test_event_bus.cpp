@@ -1,6 +1,7 @@
 // tests/test_event_bus.cpp
 #include "../src/observe/EventBus.h"
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <thread>
