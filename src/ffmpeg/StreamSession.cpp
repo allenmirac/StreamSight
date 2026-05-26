@@ -105,7 +105,13 @@ bool StreamSession::Start() {
 
 void StreamSession::Stop() {
     std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-    if (!running_) return;
+    if (!running_) {
+        // Thread may have finished on its own (e.g. video EOF) — still join
+        if (run_thread_.joinable()) {
+            run_thread_.join();
+        }
+        return;
+    }
     stop_ = true;
     running_ = false;
 
