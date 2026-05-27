@@ -53,6 +53,12 @@ bool StreamSession::Start() {
     }
     session_id_ = rtsp_server_->AddSession(session);
 
+    // ── Client-aware pipeline gating: register lifecycle callbacks ─────
+    session->AddNotifyConnectedCallback(
+        [this](xop::MediaSessionId, std::string, uint16_t) { OnClientConnected(); });
+    session->AddNotifyDisconnectedCallback(
+        [this](xop::MediaSessionId, std::string, uint16_t) { OnClientDisconnected(); });
+
     std::cout << "[StreamSession] RTSP: rtsp://localhost:" << cfg_.rtsp_port
               << "/" << cfg_.rtsp_suffix << std::endl;
 
@@ -115,6 +121,9 @@ void StreamSession::Stop() {
     stop_ = true;
     running_ = false;
 
+    // Wake pipeline thread from WaitForClients() so it can check stop_ and exit
+    client_cv_.notify_all();
+
     if (run_thread_.joinable()) {
         run_thread_.join();
     }
@@ -169,6 +178,30 @@ uint32_t StreamSession::GetSessionId() const {
     return session_id_;
 }
 
+// ── Client-aware pipeline gating ─────────────────────────────────────────────
+
+void StreamSession::OnClientConnected() {
+    int prev = client_count_.fetch_add(1);
+    if (prev == 0) {
+        client_cv_.notify_all();  // wake pipeline from WaitForClients
+    }
+}
+
+void StreamSession::OnClientDisconnected() {
+    int prev = client_count_.fetch_sub(1);
+    if (prev == 1) {
+        // Last client left — pipeline will pause on next WaitForClients() call.
+        // No notify needed; the predicate (client_count > 0) is now false.
+    }
+}
+
+void StreamSession::WaitForClients() {
+    std::unique_lock<std::mutex> lock(client_mutex_);
+    client_cv_.wait(lock, [this] {
+        return client_count_.load() > 0 || stop_.load();
+    });
+}
+
 // ── Pipeline runners ────────────────────────────────────────────────────────
 
 void StreamSession::RunSerial() {
@@ -212,8 +245,13 @@ void StreamSession::RunSerial() {
         return;
     }
 
-    while (!stop_ && streamer.IsOpened()) {
-        if (!streamer.ProcessNextFrame()) break;
+    while (!stop_) {
+        WaitForClients();  // blocks until RTSP client connects
+        if (stop_) break;
+
+        if (!streamer.IsOpened()) break;
+
+        if (!streamer.ProcessNextFrame()) break;  // EOF
     }
 
     streamer.Close();
@@ -235,6 +273,11 @@ void StreamSession::RunParallel() {
     pcfg.drop_policy.time_window_us   = static_cast<int64_t>(cfg_.time_window_ms) * 1000LL;
     pcfg.enable_backpressure = true;
     pcfg.enable_audio = cfg_.enable_audio;
+
+    // Client-aware gating: share pointers so DemuxDecodeLoop can wait for clients
+    pcfg.has_clients = &client_count_;
+    pcfg.client_cv   = &client_cv_;
+    pcfg.client_mutex = &client_mutex_;
 
     // Audio output routing
     pcfg.audio_rtsp_server  = rtsp_server_.get();

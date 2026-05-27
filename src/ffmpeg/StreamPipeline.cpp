@@ -301,6 +301,15 @@ void StreamPipeline::DemuxDecodeLoop() {
 	observe::PithyPrint pithy(5000);  // log at most every 5s
 
 	while (!stop_) {
+		// ── Client-aware gating: wait until at least one RTSP client is connected ──
+		if (cfg_.has_clients && cfg_.client_cv && cfg_.client_mutex) {
+			std::unique_lock<std::mutex> lock(*cfg_.client_mutex);
+			cfg_.client_cv->wait(lock, [this] {
+				return cfg_.has_clients->load() > 0 || stop_.load();
+			});
+		}
+		if (stop_) break;
+
 		auto capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now().time_since_epoch()).count();
 

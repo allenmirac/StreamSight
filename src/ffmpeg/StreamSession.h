@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <functional>
@@ -174,6 +175,18 @@ private:
 
     // Background run thread
     std::thread                        run_thread_;
+
+    // ── Client-aware pipeline gating ────────────────────────────────────
+    // Pipeline runs only when RTSP clients are connected (event-driven).
+    // client_count_ tracks total connected clients (atomic for lock-free
+    // read from NotifyConnectedCallback / NotifyDisconnectedCallback).
+    std::atomic<int>                   client_count_{0};
+    std::mutex                         client_mutex_;
+    std::condition_variable            client_cv_;
+
+    void OnClientConnected();
+    void OnClientDisconnected();
+    void WaitForClients();
 
     // Event bus for external observers
     SessionEventBus                    event_bus_;

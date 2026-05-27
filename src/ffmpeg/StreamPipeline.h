@@ -15,6 +15,7 @@
 #include "IOutputAdapter.h"
 #include "net/RingBuffer.h"
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <string>
 #include <thread>
@@ -106,6 +107,14 @@ struct PipelineConfig {
 	void* audio_rtsp_server  = nullptr;
 	uint32_t audio_session_id = 0;
 	int  audio_channel       = 1;    // xop::channel_1
+
+	// ── Client-aware pipeline gating ────────────────────────────
+	// Shared with StreamSession. DemuxDecodeLoop checks these before
+	// each ReadAndDecodeOnce so the pipeline pauses when no RTSP
+	// clients are connected.
+	std::atomic<int>*        has_clients  = nullptr;
+	std::condition_variable* client_cv    = nullptr;
+	std::mutex*              client_mutex = nullptr;
 };
 
 class StreamPipeline {
