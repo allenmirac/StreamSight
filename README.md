@@ -71,16 +71,19 @@ wget -O models/face_recognition.onnx \
 
 ```bash
 # Primary demo: file input with AI analysis + RTSP output
-./build/bin/ffmpeg_streamer --input test.mp4 --port 8554
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --port 8554
 
 # Camera input
 ./build/bin/ffmpeg_streamer --source camera --input 0 --port 8554
 
 # Skip AI processing
-./build/bin/ffmpeg_streamer --input test.mp4 --no-ai --port 8554
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --no-ai --port 8554
+
+# Use valgrind
+valgrind --tool=memcheck --leak-check=full --show-leak-kinds=all --undef-value-errors=no --log-file=log.log ./build/bin/ffmpeg_streamer --input pic/pic/test.mp4 --no-ai --port 8554
 
 # RTMP output (requires SRS running, see below)
-./build/bin/ffmpeg_streamer --input test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
 ```
 
 ### Watch & Query
@@ -115,7 +118,7 @@ This means there is no RTMP server listening on port 8888. Start an external RTM
 docker-compose up -d srs
 
 # StreamSight pushes processed stream to SRS
-./build/bin/ffmpeg_streamer --input test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
 
 # Watch via RTMP
 ffplay rtmp://localhost:1935/live/stream

@@ -55,3 +55,4 @@ CLAUDE.md
 build
 runtime
 docs/superpowers
+*.log
