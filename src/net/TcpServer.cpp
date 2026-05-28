@@ -2,7 +2,7 @@
 #include "Acceptor.h"
 #include "EventLoop.h"
 #include "Logger.h"
-#include <cstdio>  
+#include <cstdio>
 
 using namespace xop;
 using namespace std;
@@ -53,23 +53,21 @@ bool TcpServer::Start(std::string ip, uint16_t port)
 
 void TcpServer::Stop()
 {
-	if (is_started_) {		
-		mutex_.lock();
-		for (auto iter : connections_) {
-			iter.second->Disconnect();
+	if (is_started_) {
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			for (auto iter : connections_) {
+				iter.second->Disconnect();
+			}
 		}
-		mutex_.unlock();
 
 		acceptor_->Close();
 		is_started_ = false;
 
-		while (1) {
-			Timer::Sleep(10);
-			if (connections_.empty()) {
-				break;
-			}
-		}
-	}	
+		std::unique_lock<std::mutex> lock(mutex_);
+		stop_cv_.wait(lock,
+			[this] { return connections_.empty(); });
+	}
 }
 
 TcpConnection::Ptr TcpServer::OnConnect(SOCKET sockfd)
@@ -87,4 +85,5 @@ void TcpServer::RemoveConnection(SOCKET sockfd)
 {
 	std::lock_guard<std::mutex> locker(mutex_);
 	connections_.erase(sockfd);
+	stop_cv_.notify_one();
 }

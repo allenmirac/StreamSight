@@ -34,7 +34,7 @@ bool StreamSession::Start() {
     if (stopped_) return false;  // single-use, no restart
 
     // ── RTSP server ─────────────────────────────────────────────────────
-    event_loop_ = std::make_shared<xop::EventLoop>();
+    event_loop_ = std::make_shared<xop::EventLoop>(cfg_.eventloop_threads);
     rtsp_server_ = xop::RtspServer::Create(event_loop_.get());
 
     if (!rtsp_server_->Start("0.0.0.0", cfg_.rtsp_port)) {
@@ -251,7 +251,39 @@ void StreamSession::RunSerial() {
 
         if (!streamer.IsOpened()) break;
 
-        if (!streamer.ProcessNextFrame()) break;  // EOF
+        if (!streamer.ProcessNextFrame()) {
+            // EOF or transient error — attempt reconnect if configured.
+            // RTSP sources may drop connections due to network jitter;
+            // a single av_read_frame() failure should not kill the session.
+            if (!cfg_.reconnect_on_eof) break;
+
+            std::cerr << "[StreamSession] stream error, attempting reconnect..."
+                      << std::endl;
+            streamer.Close();
+
+            bool reconnected = false;
+            for (int i = 0; i < cfg_.max_reconnect && !stop_; ++i) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(cfg_.reconnect_delay_ms));
+                WaitForClients();  // check stop_ flag
+                if (stop_) break;
+                if (streamer.Open()) {
+                    reconnected = true;
+                    std::cout << "[StreamSession] reconnected after "
+                              << (i + 1) << " attempt(s)" << std::endl;
+                    break;
+                }
+                std::cerr << "[StreamSession] reconnect attempt "
+                          << (i + 1) << " failed" << std::endl;
+            }
+
+            if (!reconnected) {
+                std::cerr << "[StreamSession] reconnect failed after "
+                          << cfg_.max_reconnect << " attempts" << std::endl;
+                break;
+            }
+            continue;
+        }
     }
 
     streamer.Close();

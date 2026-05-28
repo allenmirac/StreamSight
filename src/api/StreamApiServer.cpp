@@ -206,6 +206,15 @@ bool StreamApiServer::Start() {
 
     auto& svr = impl_->svr;
 
+    // httplib default thread pool size is max(8, hardware_concurrency-1),
+    // which creates 15+ idle threads on modern CPUs. For an embedded API
+    // server that only serves occasional REST requests, 2 threads suffice.
+    // The streaming pipeline runs on its own dedicated threads; httplib
+    // only handles lightweight JSON serialization and route dispatching.
+    svr.new_task_queue = []() -> httplib::TaskQueue* {
+        return new httplib::ThreadPool(2);
+    };
+
     // CORS
     svr.set_default_headers({
         {"Access-Control-Allow-Origin", "*"},

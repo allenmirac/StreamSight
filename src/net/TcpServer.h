@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <mutex>
+#include <condition_variable>
 #include <unordered_map>
 #include "Socket.h"
 #include "TcpConnection.h"
@@ -40,6 +41,7 @@ protected:
 	std::unique_ptr<Acceptor> acceptor_; 
 	bool is_started_;
 	std::mutex mutex_;
+	std::condition_variable stop_cv_;
 	std::unordered_map<SOCKET, TcpConnection::Ptr> connections_;
 };
 

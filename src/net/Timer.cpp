@@ -67,7 +67,7 @@ void TimerQueue::HandleTimerEvent()
 	{
 		std::lock_guard<std::mutex> locker(mutex_);
 		int64_t timePoint = GetTimeNow();
-		while (!timers_.empty() && events_.begin()->first.first <= timePoint)
+		while (!events_.empty() && events_.begin()->first.first <= timePoint)
 		{
 			TimerId timerId = events_.begin()->first.second;
 			auto timerPtr = events_.begin()->second;

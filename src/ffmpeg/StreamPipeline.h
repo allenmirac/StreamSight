@@ -167,6 +167,13 @@ private:
 	xop::RingBuffer<ProcessedFrame> process_ring_;
 	xop::RingBuffer<AudioFrame>    audio_ring_;
 
+	// CVs for blocking Pop — notified by producer when data is pushed,
+	// waited on by consumer when ring is empty (replaces sleep-spin).
+	std::mutex              decode_cv_mutex_;
+	std::condition_variable decode_cv_;
+	std::mutex              process_cv_mutex_;
+	std::condition_variable process_cv_;
+
 	// FFmpeg contexts (owned by demux thread, accessed only there)
 	AVFormatContext*  ifmt_ctx_   = nullptr;
 	AVCodecContext*   dec_ctx_    = nullptr;

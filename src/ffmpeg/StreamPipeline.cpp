@@ -359,6 +359,8 @@ void StreamPipeline::DemuxDecodeLoop() {
 		++frames_decoded_;
 		++frame_idx;
 
+		decode_cv_.notify_one();
+
 		if (pithy.ShouldLog()) {
 			std::cout << "[StreamPipeline " << stream_id_ << "] demux: "
 			          << decode_ring_.Size() << "/" << decode_ring_.Capacity()
@@ -402,7 +404,9 @@ void StreamPipeline::AIProcessLoop() {
 		DecodedFrame dframe;
 		if (!decode_ring_.Pop(dframe)) {
 			if (stop_) break;
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			std::unique_lock<std::mutex> lock(decode_cv_mutex_);
+			decode_cv_.wait_for(lock, std::chrono::milliseconds(100),
+				[this] { return stop_.load() || !decode_ring_.IsEmpty(); });
 			continue;
 		}
 
@@ -460,6 +464,7 @@ void StreamPipeline::AIProcessLoop() {
 				++dropped_ai_;
 			}
 		}
+		process_cv_.notify_one();
 
 		if (pithy.ShouldLog()) {
 			std::cout << "[StreamPipeline " << stream_id_ << "] ai:  "
@@ -607,7 +612,9 @@ void StreamPipeline::EncodeOutputLoop() {
 		ProcessedFrame pframe;
 		if (!process_ring_.Pop(pframe)) {
 			if (stop_) break;
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			std::unique_lock<std::mutex> lock(process_cv_mutex_);
+			process_cv_.wait_for(lock, std::chrono::milliseconds(100),
+				[this] { return stop_.load() || !process_ring_.IsEmpty(); });
 			continue;
 		}
 

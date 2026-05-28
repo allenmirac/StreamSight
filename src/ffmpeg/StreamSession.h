@@ -65,6 +65,14 @@ struct StreamSessionConfig {
     int         time_window_ms   = 0;
     int         eventloop_threads = 2;
 
+    // Reconnect on EOF/error (serial mode only — parallel uses PipelineManager)
+    // When the input is an RTSP source, transient network errors cause
+    // av_read_frame() to fail. Enabling reconnect prevents the session from
+    // dying on the first error — the pipeline will Close+re-Open the demuxer.
+    bool        reconnect_on_eof   = true;
+    int         max_reconnect      = 10;
+    int         reconnect_delay_ms = 2000;
+
     // AI
     bool        enable_ai = true;
     int         analyze_fps = 5;
