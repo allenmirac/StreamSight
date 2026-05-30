@@ -678,7 +678,7 @@ void StreamPipeline::EncodeOutputLoop() {
 		av_packet_free(&out_pkt);
 
 		// Log full pipeline latency (cross-thread: capture → encode output)
-		{
+		if (observe::LatencyTracer::Instance().IsEnabled()) {
 			auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
 				std::chrono::steady_clock::now().time_since_epoch()).count();
 			int64_t pipeline_latency_us = now_us - pframe.capture_time_us;
@@ -690,7 +690,8 @@ void StreamPipeline::EncodeOutputLoop() {
 			ev.stream_id   = stream_id_;
 			ev.frame_id    = pframe.frame_index;
 			ev.duration_us = pipeline_latency_us;
-			ev.timestamp_ms = now_us / 1000;
+			ev.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+			    std::chrono::system_clock::now().time_since_epoch()).count();
 			observe::LatencyTracer::Instance().LogEvent(ev);
 		}
 
