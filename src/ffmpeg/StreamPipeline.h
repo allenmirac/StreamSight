@@ -139,6 +139,10 @@ public:
 	int64_t AudioFramesDropped() const { return audio_dropped_; }
 	int64_t AudioFramesPruned()  const { return audio_pruned_; }
 
+	int  MaxDecodeRingFill()  const { return max_decode_ring_fill_; }
+	int  MaxProcessRingFill() const { return max_process_ring_fill_; }
+	int64_t BackpressureEvents() const { return backpressure_events_; }
+
 	const std::string& StreamId() const { return stream_id_; }
 
 private:
@@ -203,6 +207,11 @@ private:
 	std::atomic<int64_t> pruned_ai_{0};
 	std::atomic<int64_t> audio_dropped_{0};
 	std::atomic<int64_t> audio_pruned_{0};
+
+	// Peak ring fill (stress testing)
+	std::atomic<int> max_decode_ring_fill_{0};
+	std::atomic<int> max_process_ring_fill_{0};
+	std::atomic<int64_t> backpressure_events_{0};
 };
 
 } // namespace ffmpeg

@@ -57,9 +57,12 @@ PipelineStats PipelineManager::GetStats(const std::string& stream_id) const {
 	s.frames_dropped_ai    = p->FramesDroppedAI();
 	s.frames_pruned_demux  = p->FramesPrunedDemux();
 	s.frames_pruned_ai     = p->FramesPrunedAI();
-	s.decode_ring_fill     = p->DecodeRingFill();
-	s.process_ring_fill    = p->ProcessRingFill();
-	s.running              = p->IsRunning();
+	s.decode_ring_fill      = p->DecodeRingFill();
+	s.process_ring_fill     = p->ProcessRingFill();
+	s.max_decode_ring_fill  = p->MaxDecodeRingFill();
+	s.max_process_ring_fill = p->MaxProcessRingFill();
+	s.backpressure_events   = p->BackpressureEvents();
+	s.running               = p->IsRunning();
 	return s;
 }
 

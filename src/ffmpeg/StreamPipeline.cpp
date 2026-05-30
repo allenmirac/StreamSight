@@ -359,6 +359,12 @@ void StreamPipeline::DemuxDecodeLoop() {
 		++frames_decoded_;
 		++frame_idx;
 
+		// Track peak fill
+		int cur_fill = decode_ring_.Size();
+		int prev_max = max_decode_ring_fill_.load();
+		while (cur_fill > prev_max &&
+		       !max_decode_ring_fill_.compare_exchange_weak(prev_max, cur_fill)) {}
+
 		decode_cv_.notify_one();
 
 		if (pithy.ShouldLog()) {
@@ -386,6 +392,7 @@ void StreamPipeline::AIProcessLoop() {
 		if (cfg_.enable_backpressure) {
 			float fill_ratio = (float)decode_ring_.Size() / decode_ring_.Capacity();
 			if (fill_ratio >= cfg_.drop_policy.start_drop_ratio) {
+				backpressure_events_++;
 				auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now().time_since_epoch()).count();
 				int64_t cutoff_us = now_us - cfg_.drop_policy.max_frame_age_us;
@@ -417,6 +424,7 @@ void StreamPipeline::AIProcessLoop() {
 			float r = cfg_.drop_policy.start_drop_ratio;
 			if (fill_ratio > r + 0.15f) {
 				skip_ai = true;  // too far behind, skip AI entirely
+				backpressure_events_++;
 			} else if (fill_ratio > r && !dframe.is_keyframe) {
 				skip_ai = true;  // skip AI on non-keyframes when backlogged
 			}
@@ -594,6 +602,7 @@ void StreamPipeline::EncodeOutputLoop() {
 		if (cfg_.enable_backpressure) {
 			float fill_ratio = (float)process_ring_.Size() / process_ring_.Capacity();
 			if (fill_ratio >= cfg_.drop_policy.start_drop_ratio) {
+				backpressure_events_++;
 				auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now().time_since_epoch()).count();
 				int64_t cutoff_us = now_us - cfg_.drop_policy.max_frame_age_us;
@@ -617,6 +626,12 @@ void StreamPipeline::EncodeOutputLoop() {
 				[this] { return stop_.load() || !process_ring_.IsEmpty(); });
 			continue;
 		}
+
+		// Track peak
+		int cur_fill = process_ring_.Size();
+		int prev_max = max_process_ring_fill_.load();
+		while (cur_fill > prev_max &&
+		       !max_process_ring_fill_.compare_exchange_weak(prev_max, cur_fill)) {}
 
 		// Wrap BGR24 pixel data as AVFrame for scaling
 		AVFrame* bgr_wrap = av_frame_alloc();

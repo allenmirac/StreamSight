@@ -23,6 +23,9 @@ struct PipelineStats {
 	int64_t frames_pruned_ai     = 0;
 	int  decode_ring_fill    = 0;
 	int  process_ring_fill   = 0;
+	int  max_decode_ring_fill  = 0;
+	int  max_process_ring_fill = 0;
+	int64_t backpressure_events = 0;
 	bool running             = false;
 };
 
