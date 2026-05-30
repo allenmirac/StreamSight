@@ -1,0 +1,28 @@
+# StreamSight Stress Test Matrix Configuration
+
+# Binary
+binary: "./build/bin/streamsight-stress"
+
+# Test matrix
+concurrency: [1, 4, 8, 16]
+pipeline_mode: [serial, parallel]
+ai_enabled: [false]
+
+# Test duration per run (seconds)
+duration_sec: 60
+warmup_sec: 10
+
+# Video source
+# If test_file is empty, a synthetic file will be generated via ffmpeg
+test_file: ""
+video_spec:
+  width: 1920
+  height: 1080
+  fps: 30
+  bitrate: 2000000
+
+# Base RTSP port (each stream gets base_port + index)
+base_port: 8554
+
+# Output
+output_dir: "./stress_results"
