@@ -60,6 +60,11 @@ void StreamPipeline::Stop() {
 	stop_ = true;
 	running_ = false;
 
+	// Wake demux thread from client-gating wait so it can see stop_==true
+	if (cfg_.client_cv) {
+		cfg_.client_cv->notify_all();
+	}
+
 	if (demux_thread_.joinable())   demux_thread_.join();
 	if (ai_thread_.joinable())      ai_thread_.join();
 	if (encode_thread_.joinable())  encode_thread_.join();

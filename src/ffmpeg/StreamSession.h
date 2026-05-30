@@ -64,6 +64,7 @@ struct StreamSessionConfig {
     int         max_frame_age_ms = 500;
     int         time_window_ms   = 0;
     int         eventloop_threads = 2;
+    bool        enable_client_gating = true;
 
     // Reconnect on EOF/error (serial mode only — parallel uses PipelineManager)
     // When the input is an RTSP source, transient network errors cause

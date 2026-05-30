@@ -113,6 +113,7 @@ struct PipelineConfig {
 	// each ReadAndDecodeOnce so the pipeline pauses when no RTSP
 	// clients are connected.
 	std::atomic<int>*        has_clients  = nullptr;
+	bool                     enable_client_gating = true;
 	std::condition_variable* client_cv    = nullptr;
 	std::mutex*              client_mutex = nullptr;
 };

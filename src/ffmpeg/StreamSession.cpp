@@ -138,6 +138,9 @@ SessionStatus StreamSession::GetStatus() const {
     SessionStatus s;
     s.running = running_;
     s.frames_processed = frame_count_;
+    if (cfg_.pipeline_mode == "parallel") {
+        s.frames_processed = pipeline_mgr_.GetStats(cfg_.rtsp_suffix).frames_decoded;
+    }
     int64_t st = start_time_.load();
     if (st > 0) {
         int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
@@ -323,14 +326,15 @@ void StreamSession::RunParallel() {
     pcfg.drop_policy.max_frame_age_us = static_cast<int64_t>(cfg_.max_frame_age_ms) * 1000LL;
     pcfg.drop_policy.time_window_us   = static_cast<int64_t>(cfg_.time_window_ms) * 1000LL;
     pcfg.enable_backpressure = true;
+    pcfg.enable_client_gating = cfg_.enable_client_gating;
     pcfg.enable_audio = cfg_.enable_audio;
 
     // Client-aware gating: share pointers so DemuxDecodeLoop can wait for clients
-    pcfg.has_clients = &client_count_;
-    pcfg.client_cv   = &client_cv_;
-    pcfg.client_mutex = &client_mutex_;
-
-    // Audio output routing
+    if (pcfg.enable_client_gating) {
+        pcfg.has_clients = &client_count_;
+        pcfg.client_cv   = &client_cv_;
+        pcfg.client_mutex = &client_mutex_;
+    }
     pcfg.audio_rtsp_server  = rtsp_server_.get();
     pcfg.audio_session_id   = session_id_;
     pcfg.audio_channel      = (int)xop::channel_1;

@@ -93,6 +93,7 @@ public:
                   << "  warmup=" << cfg_.warmup_sec << "s"
                   << std::endl;
 
+        observe::LatencyTracer::Instance().SetLogPath("/tmp/stress_latency.jsonl");
         observe::LatencyTracer::Instance().Enable(true);
 
         // Create sessions
@@ -111,6 +112,7 @@ public:
             sc.pipeline_mode   = cfg_.mode;
             sc.enc_threads     = 1;
             sc.reconnect_on_eof = false;
+            sc.enable_client_gating = false;
             sc.ringbuf_size    = 4;
             sc.max_frame_age_ms = 500;
 
