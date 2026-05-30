@@ -95,6 +95,16 @@ struct SessionStatus {
     int         http_port = 0;
     std::string stream_id;
     std::string error;
+
+    // Stress testing fields
+    int         decode_ring_fill    = 0;
+    int         process_ring_fill   = 0;
+    int         max_decode_ring_fill  = 0;
+    int         max_process_ring_fill = 0;
+    int64_t     backpressure_events   = 0;
+    int64_t     frames_pruned         = 0;
+    double      avg_eventloop_latency_us = 0.0;
+    int         eventloop_active_fds     = 0;
 };
 
 // ── Events ─────────────────────────────────────────────────────────────────

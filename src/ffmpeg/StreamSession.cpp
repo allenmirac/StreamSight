@@ -147,6 +147,25 @@ SessionStatus StreamSession::GetStatus() const {
     s.rtsp_port = cfg_.rtsp_port;
     s.http_port = cfg_.http_port;
     s.stream_id = cfg_.rtsp_suffix;
+
+    // Stress testing metrics (parallel mode only)
+    if (cfg_.pipeline_mode == "parallel") {
+        auto stats = pipeline_mgr_.GetStats(cfg_.rtsp_suffix);
+        s.frames_dropped   = stats.frames_dropped_demux + stats.frames_dropped_ai;
+        s.frames_pruned    = stats.frames_pruned_demux + stats.frames_pruned_ai;
+        s.decode_ring_fill   = stats.decode_ring_fill;
+        s.process_ring_fill  = stats.process_ring_fill;
+        s.max_decode_ring_fill  = stats.max_decode_ring_fill;
+        s.max_process_ring_fill = stats.max_process_ring_fill;
+        s.backpressure_events   = stats.backpressure_events;
+    }
+
+    // Event loop performance
+    if (event_loop_) {
+        s.avg_eventloop_latency_us = event_loop_->GetAvgLoopUs();
+        s.eventloop_active_fds     = event_loop_->GetActiveFdCount();
+    }
+
     return s;
 }
 
