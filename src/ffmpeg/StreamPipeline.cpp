@@ -4,6 +4,7 @@
 #include "StreamPipeline.h"
 #include "AudioOutputAdapter.h"
 #include "FFmpegUtils.h"
+#include "observe/LatencyTracer.h"
 #include "observe/PithyPrint.h"
 #include <cstdio>
 #include <cstring>
@@ -312,6 +313,10 @@ void StreamPipeline::DemuxDecodeLoop() {
 
 		auto capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now().time_since_epoch()).count();
+
+		// Per-frame latency scope: measures demux+decode+scale+push
+		STREAMSIGHT_LATENCY_SCOPE_WITH_IDS("pipeline", "demux_decode",
+		                                    stream_id_, frame_idx);
 
 		if (!ReadAndDecodeOnce(decoded)) {
 			break;  // EOF or error
@@ -671,6 +676,23 @@ void StreamPipeline::EncodeOutputLoop() {
 			av_packet_unref(out_pkt);
 		}
 		av_packet_free(&out_pkt);
+
+		// Log full pipeline latency (cross-thread: capture → encode output)
+		{
+			auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count();
+			int64_t pipeline_latency_us = now_us - pframe.capture_time_us;
+
+			observe::LatencyEvent ev;
+			ev.module      = "pipeline";
+			ev.stage       = "full";
+			ev.event       = "frame";
+			ev.stream_id   = stream_id_;
+			ev.frame_id    = pframe.frame_index;
+			ev.duration_us = pipeline_latency_us;
+			ev.timestamp_ms = now_us / 1000;
+			observe::LatencyTracer::Instance().LogEvent(ev);
+		}
 
 		if (pithy.ShouldLog()) {
 			std::cout << "[StreamPipeline " << stream_id_ << "] enc:  "
