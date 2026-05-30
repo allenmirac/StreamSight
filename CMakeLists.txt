@@ -308,3 +308,23 @@ if(BUILD_TESTS)
     target_compile_options(test_smoke PRIVATE -Wall -Wextra -DTEST_SMOKE_BUILD)
     message(STATUS "  - test_smoke (all tests)")
 endif()
+
+# streamsight-stress: stress testing harness
+if(FFMPEG_FOUND AND OpenCV_FOUND)
+    add_executable(streamsight-stress
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/stress_tester.cpp
+        ${COMMON_SRCS}
+        ${AI_SRCS}
+        ${FFMPEG_SRCS}
+        ${EFFECT_SRCS}
+        ${API_SRCS}
+    )
+    target_link_libraries(streamsight-stress
+        ${COMMON_LIBS}
+        ${FFMPEG_LIBS}
+    )
+    target_compile_options(streamsight-stress PRIVATE -Wall -Wextra)
+    message(STATUS "  - streamsight-stress")
+else()
+    message(STATUS "  - streamsight-stress (requires FFmpeg + OpenCV, skipped)")
+endif()
