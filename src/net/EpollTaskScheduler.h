@@ -26,6 +26,10 @@ private:
 	int epollfd_ = -1;
 	std::mutex mutex_;
 	std::unordered_map<int, ChannelPtr> channels_;
+	std::atomic<int> last_active_fd_count_{0};
+
+public:
+	int GetLastActiveFdCount() const { return last_active_fd_count_.load(); }
 };
 
 }

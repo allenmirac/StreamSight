@@ -1,4 +1,5 @@
 #include "EventLoop.h"
+#include "EpollTaskScheduler.h"
 
 #if defined(__linux) || defined(__linux__)
 #include <pthread.h>
@@ -159,4 +160,24 @@ bool EventLoop::AddTriggerEvent(TriggerEvent callback)
 		return task_schedulers_[0]->AddTriggerEvent(callback);
 	}
 	return false;
+}
+
+int64_t EventLoop::GetLoopCount(int scheduler_id) const {
+	if (scheduler_id >= 0 && (size_t)scheduler_id < task_schedulers_.size())
+		return task_schedulers_[scheduler_id]->GetLoopCount();
+	return 0;
+}
+
+double EventLoop::GetAvgLoopUs(int scheduler_id) const {
+	if (scheduler_id >= 0 && (size_t)scheduler_id < task_schedulers_.size())
+		return task_schedulers_[scheduler_id]->GetAvgLoopUs();
+	return 0.0;
+}
+
+int EventLoop::GetActiveFdCount(int scheduler_id) const {
+	if (scheduler_id >= 0 && (size_t)scheduler_id < task_schedulers_.size()) {
+		auto* ep = dynamic_cast<EpollTaskScheduler*>(task_schedulers_[scheduler_id].get());
+		if (ep) return ep->GetLastActiveFdCount();
+	}
+	return 0;
 }

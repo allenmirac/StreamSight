@@ -89,8 +89,10 @@ bool EpollTaskScheduler::HandleEvent(int timeout)
 	if(num_events < 0)  {
 		if(errno != EINTR) {
 			return false;
-		}								
+		}
 	}
+
+	last_active_fd_count_ = (num_events > 0) ? num_events : 0;
 
 	for(int n=0; n<num_events; n++) {
 		if(events[n].data.ptr) {        

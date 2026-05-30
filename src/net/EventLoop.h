@@ -44,6 +44,10 @@ public:
 	void Loop();
 	void Quit();
 
+	int64_t GetLoopCount(int scheduler_id = 0) const;
+	double  GetAvgLoopUs(int scheduler_id = 0) const;
+	int     GetActiveFdCount(int scheduler_id = 0) const;
+
 private:
 	std::mutex mutex_;
 	uint32_t num_threads_ = 1;

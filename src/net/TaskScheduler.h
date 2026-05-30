@@ -2,6 +2,8 @@
 #ifndef XOP_TASK_SCHEDULER_H
 #define XOP_TASK_SCHEDULER_H
 
+#include <atomic>
+#include <cstdint>
 #include "Channel.h"
 #include "Pipe.h"
 #include "Timer.h"
@@ -40,6 +42,18 @@ protected:
 	std::unique_ptr<Pipe> wakeup_pipe_;
 	std::shared_ptr<Channel> wakeup_channel_;
 	std::unique_ptr<xop::RingBuffer<TriggerEvent>> trigger_events_;
+
+protected:
+	std::atomic<int64_t> loop_count_{0};
+	std::atomic<int64_t> total_loop_us_{0};
+
+public:
+	int64_t GetLoopCount() const { return loop_count_.load(); }
+	int64_t GetTotalLoopUs() const { return total_loop_us_.load(); }
+	double  GetAvgLoopUs() const {
+		int64_t n = loop_count_.load();
+		return n > 0 ? (double)total_loop_us_.load() / n : 0.0;
+	}
 
 	std::mutex mutex_;
 	TimerQueue timer_queue_;

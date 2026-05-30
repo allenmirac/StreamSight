@@ -1,5 +1,6 @@
 #include "TaskScheduler.h"
-#if defined(__linux) || defined(__linux__) 
+#include <chrono>
+#if defined(__linux) || defined(__linux__)
 #include <signal.h>
 #endif
 
@@ -44,10 +45,14 @@ void TaskScheduler::Start()
 #endif     
 	is_shutdown_ = false;
 	while (!is_shutdown_) {
+		auto t0 = std::chrono::steady_clock::now();
 		this->HandleTriggerEvent();
 		this->timer_queue_.HandleTimerEvent();
 		int64_t timeout = this->timer_queue_.GetTimeRemaining();
 		this->HandleEvent((int)timeout);
+		auto t1 = std::chrono::steady_clock::now();
+		loop_count_++;
+		total_loop_us_ += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 	}
 }
 
