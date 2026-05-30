@@ -204,6 +204,69 @@ All routes served on a single port (default 8080) by StreamApiServer:
 
 ---
 
+## Stress Testing
+
+### Quick Start
+
+```bash
+# Build stress test binary
+cd build && cmake .. && make -j$(nproc) streamsight-stress
+
+# Generate test video
+ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=30" -t 120 \
+    -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -an \
+    /tmp/stress_1080p30.mp4 -y
+
+# Run stress test: 8 streams, parallel mode, 60s
+./build/bin/streamsight-stress \
+    --count 8 --mode parallel --duration 60 --warmup 10 \
+    --input /tmp/stress_1080p30.mp4 \
+    --json-out /tmp/stress_result.json
+
+# Or use Python orchestrator for matrix testing
+pip install pyyaml
+python3 scripts/stress_test.py --config scripts/stress_config.yaml
+```
+
+### CLI Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--count N` | 1 | Concurrent streams |
+| `--mode MODE` | parallel | `serial` or `parallel` pipeline mode |
+| `--enable-ai` | off | Enable AI face recognition |
+| `--duration SEC` | 60 | Test duration (seconds) |
+| `--warmup SEC` | 10 | Warmup duration before collection |
+| `--base-port N` | 8554 | Starting RTSP port |
+| `--input FILE` | (required) | Video file path |
+| `--width W` | 1920 | Output width |
+| `--height H` | 1080 | Output height |
+| `--fps FPS` | 30 | Target fps |
+| `--bitrate BPS` | 2000000 | Encoder bitrate |
+| `--json-out FILE` | stdout | JSON output file |
+
+### Metrics Collected
+
+| Metric | Source |
+|--------|--------|
+| Frame latency (P50/P95/P99) | LatencyTracer |
+| Frames decoded/dropped/pruned | StreamPipeline |
+| Ring buffer fill (peak) | StreamPipeline |
+| Backpressure events | StreamPipeline |
+| EventLoop latency & active FDs | EpollTaskScheduler |
+| CPU/Memory (system) | pidstat (Python orchestrator) |
+| Memory RSS (process) | /proc/self/status |
+
+### Output Format
+
+The JSON output includes:
+- `config` — test configuration
+- `actual_duration_sec` — wall clock duration
+- `memory_peak_rss_kb` — peak process memory
+- `latency_tracer` — P50/P95/P99 latencies per pipeline stage
+- `sessions` — per-stream frame counts, ring buffer peaks, backpressure events
+- `aggregate` — total frames, average FPS, drop rate
+
 ## Roadmap
 
 - **Phase 1**: Architecture correction + EffectPlugin interface + code cleanup
