@@ -475,6 +475,12 @@ void StreamPipeline::AIProcessLoop() {
 		}
 		process_cv_.notify_one();
 
+		// Track peak fill (producer side, after push -- symmetric with decode_ring_)
+		int proc_cur_fill = process_ring_.Size();
+		int proc_prev_max = max_process_ring_fill_.load();
+		while (proc_cur_fill > proc_prev_max &&
+		       !max_process_ring_fill_.compare_exchange_weak(proc_prev_max, proc_cur_fill)) {}
+
 		if (pithy.ShouldLog()) {
 			std::cout << "[StreamPipeline " << stream_id_ << "] ai:  "
 			          << decode_ring_.Size() << "/" << decode_ring_.Capacity()
@@ -627,12 +633,6 @@ void StreamPipeline::EncodeOutputLoop() {
 				[this] { return stop_.load() || !process_ring_.IsEmpty(); });
 			continue;
 		}
-
-		// Track peak
-		int cur_fill = process_ring_.Size();
-		int prev_max = max_process_ring_fill_.load();
-		while (cur_fill > prev_max &&
-		       !max_process_ring_fill_.compare_exchange_weak(prev_max, cur_fill)) {}
 
 		// Wrap BGR24 pixel data as AVFrame for scaling
 		AVFrame* bgr_wrap = av_frame_alloc();
