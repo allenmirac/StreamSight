@@ -426,6 +426,7 @@ void StreamPipeline::AIProcessLoop() {
 				skip_ai = true;  // too far behind, skip AI entirely
 				backpressure_events_++;
 			} else if (fill_ratio > r && !dframe.is_keyframe) {
+				backpressure_events_++;
 				skip_ai = true;  // skip AI on non-keyframes when backlogged
 			}
 		}
