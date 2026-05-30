@@ -72,20 +72,7 @@ wget -O models/face_recognition.onnx \
 
 ## 3. 编译
 
-### Make 构建（主要方式）
-
-```bash
-# 编译所有目标
-make -j$(nproc)
-
-# 仅编译 AI 分析服务器
-make rtsp_analysis_server -j$(nproc)
-
-# 调试模式
-make V=1 -j$(nproc)
-```
-
-### CMake 构建（需要 FFmpeg 开发库）
+### CMake 构建（主构建方式）
 
 ```bash
 mkdir -p build && cd build
@@ -93,7 +80,17 @@ cmake .. && make -j$(nproc)
 # 编译产物在 build/bin/
 ```
 
-CMake 构建会自动检测 FFmpeg 开发库，若未安装则跳过 `ffmpeg_streamer` 目标。
+CMake 会自动检测 FFmpeg 和 OpenCV 依赖。若 FFmpeg 开发库未安装，`ffmpeg_streamer`、`test_*` 和 `streamsight-stress` 目标将被跳过。
+
+### 构建选项
+
+```bash
+# 启用旧版目标（rtsp_analysis_server、rtsp_edge_analysis_server）
+cmake .. -DBUILD_LEGACY_TARGETS=ON && make -j$(nproc)
+
+# 启用测试目标（test_smoke 统一测试入口）
+cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
+```
 
 ### 编译产物
 
@@ -102,21 +99,40 @@ CMake 构建会自动检测 FFmpeg 开发库，若未安装则跳过 `ffmpeg_str
 | `rtsp_server` | 基础 RTSP 服务器 |
 | `rtsp_pusher` | RTSP 推流工具 |
 | `rtsp_h264_file` | H.264 文件推流 |
-| `rtsp_analysis_server` | AI 分析服务器 |
-| `rtsp_edge_analysis_server` | CDN 边缘调度服务器 |
-| `ffmpeg_streamer` | FFmpeg C API 管线（音视频 + RTMP） |
+| `rtsp_analysis_server` | [LEGACY] AI 分析服务器（需 BUILD_LEGACY_TARGETS=ON） |
+| `rtsp_edge_analysis_server` | [LEGACY] CDN 边缘调度服务器（需 BUILD_LEGACY_TARGETS=ON） |
+| `ffmpeg_streamer` | ★ 主入口：StreamSession + API server（音视频 + RTMP） |
+| `streamsight-stress` | 压力测试工具（多流并发、性能基线） |
+| `test_event_bus` | EventBus 单元测试 |
+| `test_effect_factory` | EffectFactory 单元测试 |
+| `test_stream_session` | StreamSession 单元测试 |
+| `test_api_server` | StreamApiServer 单元测试 |
+| `test_smoke` | 统一测试入口（需 BUILD_TESTS=ON） |
 
 ---
 
 ## 4. 运行
 
-### 模式一：本地视频文件
+### 模式一：本地视频文件（ffmpeg_streamer，推荐）
 
 ```bash
-# 需要 root 或 CAP_NET_BIND_SERVICE 绑定 554 端口
-# 或修改 --port 为 8554 等非特权端口
+# 基础 RTSP 推流（含音频）
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --port 8554
 
-./rtsp_analysis_server \
+# RTSP + RTMP 双输出
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --rtmp rtmp://localhost:1935/live/test --port 8554
+
+# USB 摄像头（含 AI）
+./build/bin/ffmpeg_streamer --source camera --input 0 --port 8554
+
+# 跳过 AI
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --no-ai --port 8554
+```
+
+### 模式二：本地视频文件（rtsp_analysis_server，LEGACY）
+
+```bash
+./build/bin/rtsp_analysis_server \
   --source file \
   --input test.h264 \
   --width 640 --height 480 --fps 25 \
@@ -124,10 +140,10 @@ CMake 构建会自动检测 FFmpeg 开发库，若未安装则跳过 `ffmpeg_str
   --http-port 8080
 ```
 
-### 模式二：USB 摄像头
+### 模式三：USB 摄像头（LEGACY）
 
 ```bash
-./rtsp_analysis_server \
+./build/bin/rtsp_analysis_server \
   --source camera \
   --device 0 \
   --width 1280 --height 720 --fps 30 \
@@ -135,10 +151,10 @@ CMake 构建会自动检测 FFmpeg 开发库，若未安装则跳过 `ffmpeg_str
   --http-port 8080
 ```
 
-### 模式三：RTSP 拉流转发
+### 模式四：RTSP 拉流转发（LEGACY）
 
 ```bash
-./rtsp_analysis_server \
+./build/bin/rtsp_analysis_server \
   --source rtsp \
   --input rtsp://192.168.1.100:554/stream \
   --port 8554 \
@@ -148,28 +164,8 @@ CMake 构建会自动检测 FFmpeg 开发库，若未安装则跳过 `ffmpeg_str
 ### 禁用 AI（仅转码推流）
 
 ```bash
-./rtsp_analysis_server \
-  --source file --input test.h264 \
-  --no-ai --port 8554
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --no-ai --port 8554
 ```
-
-### 模式四：FFmpeg C API 管线（音视频 + RTMP）
-
-```bash
-# 基础 RTSP 推流（含音频）
-./ffmpeg_streamer --input test.h264 --port 8554
-
-# RTSP + RTMP 双输出
-./ffmpeg_streamer --input test.h264 --rtmp rtmp://localhost/live/test --port 8554
-
-# USB 摄像头（含 AI）
-./ffmpeg_streamer --source camera --input 0 --port 8554
-
-# 跳过 AI
-./ffmpeg_streamer --input test.h264 --no-ai --port 8554
-```
-
-支持参数：`--source`、`--input`、`--width`、`--height`、`--fps`、`--bitrate`、`--threads`、`--rtmp`、`--no-ai`、`--analyze-fps`、`--suffix`、`--http-port`。
 
 ---
 
@@ -196,6 +192,22 @@ curl http://localhost:8080/api/current | python3 -m json.tool
 
 # 最近 10 条事件
 curl "http://localhost:8080/api/events?limit=10"
+
+# 列出所有 session
+curl http://localhost:8080/api/v1/sessions
+
+# session 详情
+curl http://localhost:8080/api/v1/sessions/session_1
+```
+
+### 运行压力测试
+
+```bash
+# 使用 stress_config.yaml 配置
+./build/bin/streamsight-stress --config scripts/stress_config.yaml
+
+# 或使用 Python 脚本
+python3 scripts/stress_test.py --streams 4 --duration 60
 ```
 
 ### 注册人脸
@@ -243,6 +255,19 @@ for line in sys.stdin:
 | `--log` | `events.jsonl` | 事件日志路径 |
 | `--analyze-fps` | `5` | AI 分析帧率（降低此值可减少 CPU 占用） |
 | `--no-ai` | — | 禁用 AI，仅编码推流 |
+| `--rtmp` | — | RTMP 推流地址（如 rtmp://localhost:1935/live/stream） |
+| `--bitrate` | `2000000` | 编码码率（bps） |
+| `--threads` | `2` | 编码线程数 |
+| `--reconnect` | `true` | 输入断开时是否自动重连 |
+| `--pipeline-mode` | `serial` | 管线模式：`serial`（单线程）或 `parallel`（3-stage） |
+
+### 延迟追踪环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `STREAMSIGHT_LATENCY_ENABLE` | (空) | 设置为 `1` 开启延迟追踪 |
+| `STREAMSIGHT_LATENCY_LOG` | `runtime/latency_events.jsonl` | JSONL 日志输出路径 |
+| `STREAMSIGHT_LATENCY_BUFFER_SIZE` | `10000` | 内存环形缓冲区大小 |
 
 ---
 

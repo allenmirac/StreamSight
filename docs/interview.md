@@ -429,7 +429,7 @@ Access-Control-Allow-Origin: *
 
 ### Q25：项目中存在哪些可以改进的设计缺陷？
 
-1. **H264Encoder 的 FIFO/pipe 方案**：fork+exec 存在进程启动开销（约 50ms），若 FFmpeg 崩溃无自动重启机制。已提供改进方案：`FFmpegStreamer`（`src/ffmpeg/`）直接链接 libavcodec/libavformat，实现进程内管线，消除进程开销并支持 RTMP 输出和音视频混合。
+1. **H264Encoder 的 FIFO/pipe 方案**：fork+exec 存在进程启动开销（约 50ms），若 FFmpeg 崩溃无自动重启机制。**已解决**：`FFmpegStreamer` + `StreamPipeline`（`src/ffmpeg/`）直接链接 libavcodec/libavformat，实现进程内管线，消除进程开销并支持 RTMP 输出和音视频混合。旧方案保留为 LEGACY。
 
 2. **`FrameAnalyzer` 串行流水线**：检测+识别串行执行，多张人脸时时间线性增长。改进：批量推理（`blobFromImages` 多张人脸一次前向）。
 
@@ -437,4 +437,151 @@ Access-Control-Allow-Origin: *
 
 4. **`RingBuffer` 的非线程安全**（见 Q4）：多生产者场景下 `put_pos_` 存在竞态，依赖外层 mutex 保护，但内部文档未说明。
 
-5. **无背压机制**：`PushFrame` 在 `RingBuffer` 满时直接丢帧，不通知生产者降速，可能导致编码端与客户端严重错位。
+5. **无背压机制**：**已解决**。`StreamPipeline` 的 `FrameDropPolicy` 提供了 `PushOrDrop`（被动，buffer 满时丢帧）+ `PruneStale`（主动，fill ratio 超阈值时修剪过期帧）两级背压控制。
+
+---
+
+## 九、EffectPlugin 插件架构
+
+### Q26：IEffectPlugin 的设计思路是什么？如何扩展新插件？
+
+**答：** `IEffectPlugin` 是所有视频特效/分析插件的统一接口，分为四类：
+
+| 类别 | 用途 | 示例 |
+|------|------|------|
+| Analysis | 内容分析，不改像素 | 人脸检测、物体检测、内容审核 |
+| Overlay | 画面叠加 | 水印、人脸框、贴纸 |
+| Transform | 像素级变换 | 美颜、色彩校正、马赛克 |
+| Extract | 帧抽取 | 关键帧提取、摘要帧捕获 |
+
+接口设计要点：
+- `Process(uint8_t* bgr_data, int w, int h, int linesize, EffectResult* result)` — 直接操作 BGR24 原始像素，可原地修改
+- `ModifiesFrame()` — 标记是否修改像素，只读分析插件可跳过帧拷贝优化
+- `Open(config_json)` / `Close()` — JSON 配置化的生命周期管理
+- `EffectResult` 输出结构化 JSON 分析结果，与像素数据分离
+
+**扩展方式：**
+1. 实现 `IEffectPlugin` 接口
+2. 在 `EffectFactory` 中注册创建器：`EffectFactory::Register("MyPlugin", creator)`
+3. 通过 `EffectChain::AddPlugin()` 加入执行链
+
+多个插件在 `EffectChain` 中按注册顺序有序执行，每帧依次经过所有插件。
+
+---
+
+### Q27：EffectFactory 如何实现 JSON 配置化？
+
+**答：** `EffectFactory` 使用静态注册表模式：
+- 维护 `unordered_map<string, Creator>` 的全局注册表
+- `Register(name, creator)` 注册自定义创建函数
+- `Create(name, config_json)` 查找注册表并调用创建函数
+- 内置 `FaceRecognition` 注册，解析 detect_model、recog_model、analyze_fps 等字段
+- `StreamSession::UpdateEffects(effects_json)` 支持运行时动态替换 EffectChain，无需重启服务
+
+---
+
+## 十、管线架构演进
+
+### Q28：StreamSession 的设计解决了什么问题？
+
+**答：** `StreamSession` 将分散的基础设施（EventLoop、RtspServer、MediaSession、FaceRecognitionPlugin、EffectChain、PipelineManager、OutputAdapter）封装在统一的 Start/Stop/GetStatus 接口之后，解决三个核心问题：
+
+1. **生命周期管理复杂**：旧代码在 example/ 中手动管理各组件的创建、初始化顺序和销毁顺序。StreamSession 通过 RAII 和状态机自动化管理。
+
+2. **对外接口不统一**：旧版每个 example 程序有独立的参数解析和启动逻辑。StreamSession 通过 `StreamSessionConfig` 统一配置，`StreamApiServer` 通过 REST API 暴露 session CRUD。
+
+3. **管线模式切换**：支持 `serial`（FFmpegStreamer 单线程低延迟）和 `parallel`（StreamPipeline 3-stage 高吞吐）两种模式，通过 config 字段切换。
+
+4. **client-aware gating**：通过 `client_count_` 原子变量 + `condition_variable`，在无 RTSP 客户端时暂停管线驱动，节省 CPU。
+
+---
+
+### Q29：StreamPipeline 的 3-stage 设计有什么优势？
+
+**答：** 参考 SRS 的 stage 隔离设计，将处理流程拆分为三个独立线程：
+
+```
+[Demux+Decode] → RingBuffer(4) → [AI Process] → RingBuffer(4) → [Encode+Output]
+```
+
+优势：
+1. **线程隔离**：每个 stage 独立线程，慢 stage 不阻塞快 stage。AI 推理（30~80ms）不会阻塞解封装和编码
+2. **RingBuffer 解耦**：stage 间通过固定大小 RingBuffer 连接，自然形成背压
+3. **背压控制**：`PushOrDrop`（被动丢帧）+ `PruneStale`（主动修剪过期帧），防止内存无限增长
+4. **可配置并行度**：通过调整 RingBuffer 大小和各 stage 线程优先级，在不同场景下平衡延迟和吞吐
+5. **可观测性**：每个 stage 独立暴露 frames_decoded/dropped/pruned、ring fill、backpressure_events 等指标
+
+当前支持 video + audio 双轨：视频走 3-stage pipeline，音频单独一个 demux→decode→push 的轻量路径。
+
+---
+
+### Q30：FrameDropPolicy 如何工作？
+
+**答：** `FrameDropPolicy` 提供两级自适应丢帧：
+
+**被动丢帧（PushOrDrop）**：
+- 当 RingBuffer 满时，生产者调用 PushOrDrop
+- 检查待插入帧的 age（当前时间 - capture_time）是否超过 `max_frame_age_us`（默认 500ms）
+- 若过期则直接丢弃，否则覆盖最旧帧
+
+**主动修剪（PruneStale）**：
+- 当 RingBuffer 填充比例 >= `start_drop_ratio`（默认 0.75）时触发
+- 从队列头部扫描，丢弃 age 超过阈值的帧
+- `prefer_keep_keyframe`：优先保留 I 帧（关键帧），P 帧优先丢弃
+- `time_window_us`：滑动时间窗口，窗口外的帧被修剪（0 表示禁用）
+
+这种设计保证了系统在负载突增时优雅降级而非崩溃。
+
+---
+
+## 十一、EventBus 与可观测性
+
+### Q31：EventBus 的用途和设计？
+
+**答：** `EventBus<EventType>` 是模板化的线程安全事件发布/订阅系统，用于模块间松耦合通信。
+
+**设计要点：**
+- `Subscribe(fn) → Handle`：注册回调，返回句柄用于取消订阅
+- `Publish(event)`：同步通知所有订阅者
+- `std::recursive_mutex`：允许在回调中安全地订阅/取消订阅
+- Handle 0 保留为无效句柄
+
+**在项目中的使用：**
+`StreamSession` 持有 `SessionEventBus`（`EventBus<FrameProcessedEvent>`），每帧处理完成后发布事件。`StreamApiServer` 订阅此事件，将分析结果更新到 HTTP API 缓存。这替代了旧代码中 `HttpApiServer::UpdateResult()` 的直接调用，实现了管线与 API 服务的解耦。
+
+---
+
+### Q32：LatencyTracer 如何实现零性能开销？
+
+**答：** 通过预处理器宏 + 环境变量开关：
+- `LATENCY_TRACE_SCOPE(name)` 宏在未设置 `STREAMSIGHT_LATENCY_ENABLE=1` 时展开为空，零指令开销
+- 开启时，每个 scope 创建 RAII 对象，构造时记录 `steady_clock::now()`，析构时计算耗时并写入环形缓冲区
+- 后台线程批量刷入 JSONL 文件，避免 I/O 阻塞测量精度
+- 单次 scope 开销约 2~5 微秒（原子操作 + 时间戳获取），25fps 下每帧 10 个 scope 总开销约 0.05ms
+
+---
+
+## 十二、测试与压力测试
+
+### Q33：项目的测试体系如何组织？
+
+**答：** 测试覆盖四个层面：
+
+| 测试 | 文件 | 覆盖内容 |
+|------|------|----------|
+| test_event_bus | tests/test_event_bus.cpp | EventBus 订阅/取消/发布、递归回调安全性 |
+| test_effect_factory | tests/test_effect_factory.cpp | EffectFactory 注册/创建/未知插件处理 |
+| test_stream_session | tests/test_stream_session.cpp | StreamSession 启动/停止/GetStatus/UpdateEffects |
+| test_api_server | tests/test_api_server.cpp | StreamApiServer session CRUD、旧版路由兼容 |
+| test_smoke | tests/test_smoke_driver.cpp | 统一入口，所有测试合并编译（BUILD_TESTS=ON） |
+
+### Q34：streamsight-stress 压力测试测什么？
+
+**答：** `streamsight-stress` 是独立 target，用于验证多流并发场景下的系统稳定性：
+- 多流并发（可配置流数）
+- 性能基线采集（帧率、延迟分布）
+- Backpressure 验证（RingBuffer 填满时 FrameDropPolicy 行为）
+- EventLoop 活跃 fd 数和平均延迟
+- RingBuffer fill 峰值和 backpressure 事件计数
+
+结果通过 `SessionStatus` 的 stress testing 字段暴露，可配合 `scripts/stress_test.py` 自动化测试。
