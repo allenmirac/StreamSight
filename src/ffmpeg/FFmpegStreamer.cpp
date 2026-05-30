@@ -345,11 +345,11 @@ void FFmpegStreamer::Close() {
         av_packet_free(&flush_pkt);
     }
 
-    // Close output adapters
+    // Close output adapters. Keep the shared_ptrs in cfg_.outputs so
+    // a subsequent Open() can re-open them (reconnect scenario).
     for (auto& out : cfg_.outputs) {
         out->Close();
     }
-    cfg_.outputs.clear();
 
     // Free scalers
     if (to_bgr_) { sws_freeContext(to_bgr_); to_bgr_ = nullptr; }

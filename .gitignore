@@ -56,3 +56,4 @@ build
 runtime
 docs/superpowers
 *.log
+/scripts/__pycache__

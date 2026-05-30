@@ -1,12 +1,14 @@
-# 面试题目总结：RTSP 视频行为分析服务器
+# 面试题目总结：流媒体后端服务系统
 
-本文档对项目涉及的技术点进行系统梳理，覆盖从底层网络到 AI 推理的完整链路。
+本文档对项目涉及的技术点进行系统梳理，面向**后端开发 + 流媒体方向**实习/秋招面试场景。覆盖网络框架、系统架构、并发模型、接口设计、性能优化、测试体系等通用后端关注点，并结合音视频领域知识展示差异化的项目深度。
+
+> **面试策略**：将项目定位为"用音视频数据流锻炼后端系统设计能力"，而不是窄化为"只做流媒体"。网络层、流水线架构、插件体系、接口设计、可观测性等能力在任何后端岗位都通用。
 
 ---
 
 ## 一、项目一句话介绍
 
-> 基于 C++11 实现的实时 RTSP 流媒体服务器，在 Reactor 网络层之上扩展了 AI 分析流水线：从摄像头/文件/RTSP 拉流获取原始帧，经人脸检测（OpenCV DNN）和人脸识别（ArcFace ONNX）分析后，将标注结果编码为 H.264 推入 RTSP 流，同时通过 REST API 提供实时查询接口。
+> 基于 C++11 自研的流媒体后端服务系统。底层自研事件驱动网络框架，中层实现进程内三阶段并行处理流水线和可扩展插件架构，上层提供 HTTP 接口服务、事件通知机制和运行指标采集。将"视频帧处理"类比为"后端请求处理"，通过该项目锻炼通用的后端系统设计能力。
 
 ---
 
@@ -585,3 +587,175 @@ Access-Control-Allow-Origin: *
 - RingBuffer fill 峰值和 backpressure 事件计数
 
 结果通过 `SessionStatus` 的 stress testing 字段暴露，可配合 `scripts/stress_test.py` 自动化测试。
+
+---
+
+## 十三、系统设计与架构（后端面试视角）
+
+### Q35：如果让你从零设计一个高并发后端服务，你会怎么设计网络层？
+
+**答：** 我会选择 **事件驱动 + 非阻塞 I/O + 多线程** 的组合，这也是我在项目中实践的方案：
+
+1. **I/O 多路复用**：Linux 下使用 epoll（边缘触发模式），通过增量接口维护文件描述符集合，等待函数只返回就绪事件而非遍历全部，时间复杂度 O(1)。对比传统的 select（O(N) 遍历、最多 1024 个连接），epoll 轻松支持数万并发连接。
+
+2. **事件分发与负载均衡**：主循环管理多个 I/O 调度器，每个调度器绑定一个独立线程。新连接由监听器接收后，轮询分配给不同调度器，实现多线程负载均衡。
+
+3. **非阻塞 I/O**：所有套接字设为非阻塞模式，读写在数据未就绪时立即返回等待下次事件通知，避免单个慢客户端阻塞整个线程。
+
+4. **跨线程唤醒机制**：用匿名管道实现跨线程任务投递——外部线程向管道写端写入 1 字节，触发等待中的 I/O 线程被唤醒，处理新增的连接或定时任务。
+
+5. **内存池管理**：按大小分层（小/中/大三档）+ 空闲链表，将频繁的小块内存分配从系统调用转为 O(1) 池化操作，减少内存碎片和分配延迟抖动。
+
+这套方案的核心思想是"少量线程管理大量连接"，与 Nginx、Redis 的网络模型同源。面试时可以延伸讨论：边缘触发 vs 水平触发的区别、端口复用在内核版本间的差异、批量发包在大规模场景下的优势。
+
+---
+
+### Q36：你项目中用到了哪些设计模式？怎么用的？
+
+**答：**
+
+| 设计模式 | 项目中的使用 | 位置 |
+|----------|-------------|------|
+| **Reactor 模式** | 事件驱动网络框架核心架构 | `src/net/EventLoop.cpp` |
+| **策略模式** | `FrameDropPolicy` 可替换丢帧策略；`SchedulerPolicy` 可配置调度权重 | `src/ffmpeg/FrameDropPolicy.h`, `src/control/PolicyCenter.h` |
+| **工厂模式** | `EffectFactory` 根据名称字符串 + JSON config 动态创建插件实例 | `src/effect/EffectFactory.h` |
+| **责任链模式** | `EffectChain` 将每帧按注册顺序依次通过所有 IEffectPlugin | `src/effect/EffectChain.h` |
+| **适配器模式** | `IOutputAdapter` 统一 RTSP/RTMP 输出接口，`MultiOutputAdapter` 聚合多路输出 | `src/ffmpeg/IOutputAdapter.h` |
+| **观察者模式** | `EventBus` 发布/订阅，管线发布 FrameProcessedEvent，API 服务订阅更新缓存 | `src/observe/EventBus.h` |
+| **RAII** | 贯穿整个项目：`LatencyTracer` scope 自动计时、智能指针管理连接生命周期 | 各处 |
+| **单例模式** | `LatencyTracer` 全局唯一实例（`GetInstance()`），EffectFactory 静态注册表 | `src/observe/LatencyTracer.h` |
+
+面试时重点讲 Reactor（这是理解 Nginx/Redis/Netty 网络模型的钥匙）、工厂+责任链（展示了可扩展系统设计能力）、适配器（展示了面向接口编程）。
+
+---
+
+### Q37：你的项目是怎么做 API 设计的？有什么可以讲的点？
+
+**答：** `StreamApiServer` 的设计有几个可以讲的点：
+
+1. **路由合并**：将旧版路由（`/api/current`、`/api/faces` 等）和 v1 session 管理路由（`/api/v1/sessions`）合并到单一端口服务。这是一个典型的 API 版本共存策略——不是粗暴替换旧接口，而是通过路径前缀区分版本，保证向后兼容。
+
+2. **Session CRUD**：提供了完整的 session 生命周期管理（创建/查询/更新/删除），支持 `POST /api/v1/sessions` 通过 JSON body 配置参数创建 session，`PUT /api/v1/sessions/:id/effects` 动态更新 Effect 配置而不重启服务。
+
+3. **线程安全**：`current_result_` 和 `event_history_` 有独立的 mutex 保护；session 注册表有独立的 mutex。避免一个锁覆盖所有数据，减少锁竞争。
+
+4. **CORS 支持**：设置 `Access-Control-Allow-Origin: *`，支持浏览器前端直接调用。
+
+面试时可以延伸讨论：RESTful vs GraphQL、API 版本策略（URL 前缀 vs Header）、限流和鉴权的实现思路。
+
+---
+
+### Q38：你项目中的并发模型是怎样的？怎么保证线程安全？
+
+**答：** 项目涉及多种并发场景，针对不同场景采用了不同的线程安全策略：
+
+**多线程 I/O（网络层）**：
+- `EventLoop` 中多个 `TaskScheduler` 各自运行在独立线程
+- 跨线程投递任务（`AddTriggerEvent`）通过 mutex + Pipe 唤醒实现安全通信
+
+**3-stage 并行管线（处理层）**：
+- 三个 stage 各自在独立线程运行（demux_thread / ai_thread / encode_thread）
+- Stage 间通过 `RingBuffer<DecodedFrame>` 和 `RingBuffer<ProcessedFrame>` 连接
+- `RingBuffer` 内部使用 `std::atomic_int` 控制计数，配合外部的 `condition_variable` 实现阻塞等待和无锁 SPSC 语义
+- 每帧数据通过 `shared_ptr<vector<uint8_t>>` 传递，自动管理生命周期
+
+**HTTP API 服务（接口层）**：
+- `StreamApiServer` 的 handler 由 cpp-httplib 内部线程池处理
+- 分析结果缓存（`current_result_`）和事件历史（`event_history_`）分别使用独立 mutex
+- Session 注册表（`sessions_`）使用独立 mutex
+
+**EventBus（横切关注点）**：
+- 使用 `std::recursive_mutex`，允许在回调中安全地订阅/取消订阅
+
+面试时可以延伸讨论：SPSC vs MPMC 队列的选型、`shared_ptr` 的线程安全性（引用计数是原子的，但指向的对象需要额外保护）、无锁编程的 CAS 和 ABA 问题。
+
+---
+
+### Q39：如果服务突然流量翻倍，你的系统怎么处理过载？
+
+**答：** 项目中的 `FrameDropPolicy` 提供了两级过载保护：
+
+1. **被动丢帧（PushOrDrop）**：当 RingBuffer 写满时，生产者尝试 push 新帧。检查新帧的 age（当前时间 - capture_time），如果超过 `max_frame_age_us`（默认 500ms），说明该帧已过期，直接丢弃；否则覆盖队列中最旧的帧。这保证了 buffer 满时不会阻塞生产者。
+
+2. **主动修剪（PruneStale）**：当 RingBuffer 填充比例超过 `start_drop_ratio`（默认 75%）时，消费者线程从队列头部扫描，主动丢弃 age 超过阈值的帧。`prefer_keep_keyframe` 机制优先保留 I 帧（关键帧），丢弃 P 帧（差分帧），保证新客户端仍能快速解码。
+
+3. **Client-aware gating**：StreamSession 通过 `client_count_` 原子变量跟踪 RTSP 客户端连接数，无客户端时管线完全暂停（`wait()` 阻塞），避免无人消费时无意义消耗 CPU。
+
+这套机制的核心思想是"宁可丢帧也不阻塞崩溃"，与微服务中的熔断降级、消息队列中的背压策略思路一致。面试时可以延伸讨论：令牌桶/漏桶限流、Hystrix/Sentinel 熔断、Kafka 的 consumer lag 处理。
+
+---
+
+### Q40：你怎么给一个没有音视频背景的面试官讲清楚你的项目价值？
+
+**答：** 我会这样讲：
+
+> StreamSight 本质上是一个**高并发的实时数据处理后端服务**，只是它的数据类型是音视频帧而不是 JSON/Protobuf。
+>
+> 和普通后端服务的类比：
+> - **HTTP 请求 → Controller → Service → DB** 变成了 **视频帧 → 解码 → AI 处理 → 编码输出**
+> - **Nginx 的 epoll + 非阻塞 I/O** 我自研了一套，深入理解了 Reactor 模式
+> - **微服务间的消息队列解耦** 我用 RingBuffer + EventBus 实现了类似的效果
+> - **熔断降级/背压** 我用 FrameDropPolicy 自适应丢帧实现了过载保护
+> - **RESTful API** 我实现了 session CRUD + 版本共存
+> - **可观测性** 我做了 MetricsRegistry + LatencyTracer，相当于简易版的 Prometheus + Jaeger
+>
+> 所以表面上看是一个流媒体项目，实际上锻炼的是**通用的后端系统设计能力**——网络框架、并发模型、流量控制、API 设计、可观测性，这些技能在任何高并发后端场景都适用。
+
+---
+
+### Q41：你对项目做过哪些性能优化？优化思路是什么？
+
+**答：** 优化思路遵循"测量 → 定位瓶颈 → 针对性优化 → 验证"的闭环：
+
+1. **编码管线重构（最大收益）**：旧方案使用 `fork+pipe` 启动 FFmpeg 子进程，存在进程启动开销（~50ms）、两次内存拷贝（父→pipe→子进程）、子进程崩溃无自动恢复。重构为 `FFmpegStreamer`（直接链接 libavcodec/libavformat 进程内调用），消除跨进程通信开销。进一步升级为 `StreamPipeline` 3-stage 并行管线，AI 推理（30~80ms）不再阻塞解封装和编码。
+
+2. **背压控制**：引入 `FrameDropPolicy` 两级自适应丢帧替代简单的 buffer 满即丢策略（见 Q39），端到端延迟由 ~100ms 降至 30~40ms。
+
+3. **零开销可观测性**：`LATENCY_TRACE_SCOPE` 宏在环境变量未设置时展开为空，开启后单次 scope 仅 2~5μs，25fps 下每帧 10 个 scope 总开销约 0.05ms，不影响测量精度。
+
+4. **内存池**：`MemoryManager` 按大小分层 + 空闲链表，RTP 推流时每帧数百个 1.5KB 小包分配从 `new`/`delete` 变为 O(1) 池化分配，延迟抖动显著降低。
+
+5. **关键帧优先**：丢帧策略中 `prefer_keep_keyframe=true` 优先保留 I 帧，新客户端不用等待更久才能解码，减少黑屏/花屏时长。
+
+---
+
+### Q42：如果面试官问你"你项目中的 EventBus 和 Kafka 有什么区别"，你怎么回答？
+
+**答：**
+
+| 对比维度 | 项目 EventBus | Kafka |
+|----------|--------------|-------|
+| 通信范围 | 进程内（in-process） | 跨进程/跨机器（distributed） |
+| 持久化 | 无（内存） | 磁盘持久化，支持 replay |
+| 可靠性 | 同步调用，订阅者异常会影响发布者 | 生产者/消费者独立，支持 at-least-once/exactly-once |
+| 吞吐量 | 极高（函数调用级） | 高（网络 + 磁盘，但可通过分区并行） |
+| 适用场景 | 模块间松耦合通信 | 服务间异步解耦、日志收集、流处理 |
+| 消费者模型 | push（发布者主动调用回调） | pull（消费者主动拉取，控制消费速率） |
+
+我的项目中的 EventBus 解决的是**进程内模块解耦**的问题——管线线程发布 `FrameProcessedEvent`，API 服务订阅此事件更新 HTTP 缓存，避免直接耦合。如果要扩展为真正的消息队列（跨进程），可以将 EventBus 的 `Publish` 替换为向 Kafka/Redis Stream 发送消息，订阅者改为消费消息的独立进程。
+
+这个问题考察的是你对自己实现的理解边界——你知道它适合什么场景、不适合什么场景，以及如果要升级该怎么改。
+
+---
+
+### Q43：你的项目如果部署到生产环境，还缺少什么？
+
+**答：** 坦诚列出当前缺失项反而体现工程成熟度：
+
+1. **配置中心**：当前配置硬编码在命令行参数中，生产环境需要 YAML/TOML 配置文件 + 环境变量覆盖 + 配置热更新。
+
+2. **认证与鉴权**：当前仅 RTSP Digest 认证，HTTP API 无鉴权。生产环境需要 JWT/OAuth2 + RBAC。
+
+3. **日志系统**：当前各模块用 `fprintf`/`std::cerr` 输出，需要统一为结构化日志（如 spdlog + JSON 格式），支持日志级别、文件轮转、远程采集。
+
+4. **健康检查与优雅关闭**：当前缺少 `/health`、`/ready` 端点，`Stop()` 的优雅关闭（等待进行中的请求完成）可以增强。
+
+5. **CI/CD**：当前缺少 GitHub Actions/Jenkins 自动化构建和测试流程。
+
+6. **容器化**：当前有 `docker-compose.yml` 仅用于 SRS，服务本身尚未 Docker 化。
+
+7. **限流与过载保护**：当前 FrameDropPolicy 是管线内部的过载保护，缺少入口层的限流（如令牌桶）。
+
+8. **持久化存储**：当前人脸库（`faces.json`）和事件日志（`events.jsonl`）是本地文件，生产环境需要接入数据库。
+
+这些问题在面试中主动提出是加分项——说明你有生产环境的意识，且对项目的当前边界有清晰认识。

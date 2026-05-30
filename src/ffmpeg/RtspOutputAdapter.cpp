@@ -36,8 +36,11 @@ bool RtspOutputAdapter::Open(const AVCodecContext* enc_ctx,
 }
 
 void RtspOutputAdapter::Close() {
-	rtsp_server_ = nullptr;
-	session_id_  = 0;
+	// Identity (rtsp_server_, session_id_) set at construction survives
+	// Close/Open cycles for pipeline reconnect. Only reset runtime state.
+	frame_count_ = 0;
+	fps_ = 0;
+	enable_latency_sei_ = false;
 }
 
 bool RtspOutputAdapter::WritePacket(const AVPacket* pkt) {
