@@ -55,6 +55,7 @@ public:
 		return n > 0 ? (double)total_loop_us_.load() / n : 0.0;
 	}
 
+protected:
 	std::mutex mutex_;
 	TimerQueue timer_queue_;
 

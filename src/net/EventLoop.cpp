@@ -162,19 +162,22 @@ bool EventLoop::AddTriggerEvent(TriggerEvent callback)
 	return false;
 }
 
-int64_t EventLoop::GetLoopCount(int scheduler_id) const {
+int64_t EventLoop::GetLoopCount(int scheduler_id) {
+	std::lock_guard<std::mutex> locker(mutex_);
 	if (scheduler_id >= 0 && (size_t)scheduler_id < task_schedulers_.size())
 		return task_schedulers_[scheduler_id]->GetLoopCount();
 	return 0;
 }
 
-double EventLoop::GetAvgLoopUs(int scheduler_id) const {
+double EventLoop::GetAvgLoopUs(int scheduler_id) {
+	std::lock_guard<std::mutex> locker(mutex_);
 	if (scheduler_id >= 0 && (size_t)scheduler_id < task_schedulers_.size())
 		return task_schedulers_[scheduler_id]->GetAvgLoopUs();
 	return 0.0;
 }
 
-int EventLoop::GetActiveFdCount(int scheduler_id) const {
+int EventLoop::GetActiveFdCount(int scheduler_id) {
+	std::lock_guard<std::mutex> locker(mutex_);
 	if (scheduler_id >= 0 && (size_t)scheduler_id < task_schedulers_.size()) {
 		auto* ep = dynamic_cast<EpollTaskScheduler*>(task_schedulers_[scheduler_id].get());
 		if (ep) return ep->GetLastActiveFdCount();

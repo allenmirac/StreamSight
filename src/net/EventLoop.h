@@ -44,9 +44,9 @@ public:
 	void Loop();
 	void Quit();
 
-	int64_t GetLoopCount(int scheduler_id = 0) const;
-	double  GetAvgLoopUs(int scheduler_id = 0) const;
-	int     GetActiveFdCount(int scheduler_id = 0) const;
+	int64_t GetLoopCount(int scheduler_id = 0);
+	double  GetAvgLoopUs(int scheduler_id = 0);
+	int     GetActiveFdCount(int scheduler_id = 0);
 
 private:
 	std::mutex mutex_;
