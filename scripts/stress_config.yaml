@@ -4,7 +4,7 @@
 binary: "./build/bin/streamsight-stress"
 
 # Test matrix
-concurrency: [1, 4, 8, 16]
+concurrency: [32]
 pipeline_mode: [serial, parallel]
 ai_enabled: [false]
 

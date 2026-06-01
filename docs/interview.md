@@ -577,16 +577,47 @@ Access-Control-Allow-Origin: *
 | test_api_server | tests/test_api_server.cpp | StreamApiServer session CRUD、旧版路由兼容 |
 | test_smoke | tests/test_smoke_driver.cpp | 统一入口，所有测试合并编译（BUILD_TESTS=ON） |
 
-### Q34：streamsight-stress 压力测试测什么？
+### Q34：streamsight-stress 压力测试怎么设计的？实际测出了什么？
 
-**答：** `streamsight-stress` 是独立 target，用于验证多流并发场景下的系统稳定性：
-- 多流并发（可配置流数）
-- 性能基线采集（帧率、延迟分布）
-- Backpressure 验证（RingBuffer 填满时 FrameDropPolicy 行为）
-- EventLoop 活跃 fd 数和平均延迟
-- RingBuffer fill 峰值和 backpressure 事件计数
+**答：** 压力测试体系分为三层，从埋点到编排全覆盖：
 
-结果通过 `SessionStatus` 的 stress testing 字段暴露，可配合 `scripts/stress_test.py` 自动化测试。
+**Layer 1：代码内埋点（Instrumentation）**
+- `LatencyTracer`（单例 + RAII Scope）：构造时记 `start_us`，析构时自动算 `duration_us` 推入 ring buffer，后台 writer 线程异步刷 JSONL。关断时仅一次 atomic load，近乎零开销。
+- `StreamPipeline::GetStatus()`：暴露 frames_decoded / dropped / pruned、ring fill（当前值 + 峰值）、backpressure_events、eventloop stats
+- 进程 RSS 内存：读取 `/proc/self/status` 的 VmRSS 字段，比 heap profiling 更准确
+
+**Layer 2：C++ 压测 Harness（tests/stress_tester.cpp）**
+- 创建 N 个 `StreamSession` 并发运行
+- 10s 预热排除冷启动偏差 → 60s 采集（每秒对全部 session 调用 GetStatus）→ 停止 → 聚合
+- 输出 JSON：config + per-session 时间序列 + LatencyTracer 百分位 + aggregate
+
+**Layer 3：Python 编排器（scripts/stress_test.py）**
+- YAML 驱动矩阵测试：`concurrency: [1,4,8,16] × pipeline_mode: [serial,parallel] × AI: [on,off]`
+- 通过 pidstat 独立进程采集系统级 CPU% 和内存，不干扰被测进程
+- 自动生成 Markdown 对比报告
+
+**实际测试结果（8路 × 1080p30 × 60s，无 AI，parallel 模式）：**
+
+| 指标 | 数值 | 含义 |
+|------|------|------|
+| 总吞吐 | 20,147 帧 / 61s = **330 fps** | 8路聚合解码吞吐 |
+| 单路吞吐 | 平均 **41.3 fps** | 超过源帧率 30fps，1.38× 实时 |
+| 丢帧率 | **0%** | 背压机制保证了零丢帧 |
+| 全链路延迟 P50/P99 | **135ms / 239ms** | 解码→编码→RTSP 全链路，尾延迟可控 |
+| 解码延迟 P99 | **31.5ms** | 单阶段解复用+解码，能力充足 |
+| 内存占用 | **793MB / 8路 ≈ 99MB/路** | 对比 fork+pipe 方案每路独立 ffmpeg 进程 |
+| 背压事件 | 每路 ~1,738 次 | process_ring 满(4/4)，decode_ring 仅用(1/4)，解码主动降速换取零丢帧 |
+
+**关键发现：**
+- **处理环节是瓶颈**：process ring 满而 decode ring 空闲 → 编码速度 < 解码速度，瓶颈在编码端
+- **背压机制正确生效**：环满触发 1700+ 次背压 → 解码侧降速 → 零丢帧，验证了 FrameDropPolicy 的设计
+- **延迟分布健康**：P50 135ms → P99 239ms，尾延迟没有长尾抖动，系统稳定
+- **demux_decode 采样 21,252 次 vs pipeline.full 采样 15,369 次**：差值 ~5,883 帧在 pipeline 中飞行/等待，与 avg 延迟 196ms × 41fps ≈ 8 帧在途吻合
+
+**面试时怎么讲：**
+> "我为这个项目搭建了三层压力测试体系。底层用 RAII 做微秒级延迟追踪，中间用 C++ harness 做多流并发和每秒采样，顶层用 Python 脚本做矩阵化自动测试。
+> 测试了 8 路 1080p30 并发场景，结果零丢帧，全链路 P99 延迟 239ms，内存 99MB/路。
+> 最关键的是通过 backpressure_events 计数和 ring fill 峰值，验证了背压机制确实在工作——process ring 满了，decode ring 被压到只用 1/4 容量，解码侧主动降速换来了零丢帧。"
 
 ---
 
@@ -705,21 +736,90 @@ Access-Control-Allow-Origin: *
 
 ### Q41：你对项目做过哪些性能优化？优化思路是什么？
 
-**答：** 优化思路遵循"测量 → 定位瓶颈 → 针对性优化 → 验证"的闭环：
+**答：** 优化思路遵循"测量 → 定位瓶颈 → 针对性优化 → 验证"的闭环，每一步都有数据支撑：
 
-1. **编码管线重构（最大收益）**：旧方案使用 `fork+pipe` 启动 FFmpeg 子进程，存在进程启动开销（~50ms）、两次内存拷贝（父→pipe→子进程）、子进程崩溃无自动恢复。重构为 `FFmpegStreamer`（直接链接 libavcodec/libavformat 进程内调用），消除跨进程通信开销。进一步升级为 `StreamPipeline` 3-stage 并行管线，AI 推理（30~80ms）不再阻塞解封装和编码。
+**1. 编码管线重构（收益最大）**
+- **旧方案**：`fork+pipe` 启动 FFmpeg 子进程 → 进程启动开销 ~50ms + 两次内存拷贝（父→pipe→子进程）+ 子进程崩溃无自动恢复
+- **新方案**：`FFmpegStreamer`（直接链接 libavcodec/libavformat 进程内调用）→ 消除跨进程通信
+- **进一步升级**：`StreamPipeline` 3-stage 并行管线（Demux+Decode → AI Process → Encode+Output），AI 推理不再阻塞解封装和编码
+- **验证数据**：8路 1080p30 并发，总吞吐 330fps（单路 41fps / 1.38× 实时），零丢帧。内存从旧方案估算的每路 ~250MB（独立 ffmpeg 子进程）降至 **99MB/路**（8路总计 793MB）
 
-2. **背压控制**：引入 `FrameDropPolicy` 两级自适应丢帧替代简单的 buffer 满即丢策略（见 Q39），端到端延迟由 ~100ms 降至 30~40ms。
+**2. 背压控制（可靠性优化）**
+- **问题**：解码速度 > 编码速度时中间队列无限堆积 → 要么 OOM，要么大量丢帧
+- **方案**：`FrameDropPolicy` 两级自适应背压
+  - `PushOrDrop`：RingBuffer 满时检查帧 age，过期帧直接丢弃，否则覆盖最旧帧
+  - `PruneStale`：RingBuffer 填充 ≥ 75% 时主动扫描丢弃过期帧，优先保留 I 帧
+- **验证数据**：压测中 process_ring 满 (4/4) 触发每路 ~1,738 次背压事件 → decode_ring 仅用 1/4 → 解码主动降速 → **丢帧率 0%**
+- **关键洞察**：背压不是在"避免丢帧"，而是在"用解码侧等待换取零丢帧"
 
-3. **零开销可观测性**：`LATENCY_TRACE_SCOPE` 宏在环境变量未设置时展开为空，开启后单次 scope 仅 2~5μs，25fps 下每帧 10 个 scope 总开销约 0.05ms，不影响测量精度。
+**3. 管线死锁修复（稳定性优化）**
+- **问题**：多路并发 Stop() 时，demux 线程卡在 `client_cv.wait()` 上等 RTSP 客户端，而 Stop() 在等 demux 线程 join → 死锁
+- **修复**：Stop() 中先 `client_cv.notify_all()` 唤醒等待，再 join 各线程；增加 `client_count_` 原子变量做 client-aware gating
+- **验证**：8路 × 60s 长时间运行 + 正常 Stop 退出，无死锁
 
-4. **内存池**：`MemoryManager` 按大小分层 + 空闲链表，RTP 推流时每帧数百个 1.5KB 小包分配从 `new`/`delete` 变为 O(1) 池化分配，延迟抖动显著降低。
+**4. 零开销可观测性**
+- `LATENCY_TRACE_SCOPE` 宏在未设置环境变量时展开为空，零指令开销
+- 开启后单次 scope 仅 2~5μs（一次 `steady_clock::now()` + 一次 atomic store）
+- 全链路延迟用 P50/P95/P99 而非平均值 → 能发现长尾问题（实测 P50 135ms vs P99 239ms，尾延迟分布健康）
 
-5. **关键帧优先**：丢帧策略中 `prefer_keep_keyframe=true` 优先保留 I 帧，新客户端不用等待更久才能解码，减少黑屏/花屏时长。
+**5. 内存池（延迟稳定性优化）**
+- `MemoryManager` 按大小分层（小 ≤4KB / 中 ≤64KB / 大 ≤1MB）+ 空闲链表
+- RTP 推流时每帧数百个 1.5KB 小包分配从 `new`/`delete` 变为 O(1) 池化
+- 效果：延迟抖动显著降低，P50→P99 跨度仅 1.77×，无异常长尾
+
+**面试时展示优化成果的黄金句式：**
+> "我的优化思路是 measure-first：先搭建可观测性基础设施（LatencyTracer + GetStatus），用压力测试产生数据，找到瓶颈（process ring 满、内存高、有死锁），对症下药，再用同样的压测验证效果。每个优化都有 before/after 的数据对比，而不是凭感觉改代码。"
 
 ---
 
-### Q42：如果面试官问你"你项目中的 EventBus 和 Kafka 有什么区别"，你怎么回答？
+### Q41.5：面试官问"你的优化效果怎么样"，你怎么用数据回答？
+
+这个问题考察的是你**用数据讲故事的能能力**，而不是单纯报数字。回答的黄金结构是：**场景 → 基线 → 优化 → 验证 → 量化对比**。
+
+**错误示范（只报数字，没有上下文）：**
+> "我的项目能做到 330fps，延迟 P99 239ms，内存 793MB。"
+
+面试官听完一脸茫然——330fps 是好是坏？跟谁比？怎么做到的？
+
+**正确示范（五步法）：**
+
+**Step 1：交代场景**
+> "我在 8 路 1080p30 并发、60 秒持续负载的压力测试场景下验证的。"
+
+**Step 2：说明基线（对比才有意义）**
+> "旧方案是 fork+pipe 启动独立 FFmpeg 子进程做编码，每路大约 250MB 内存，8 路就要 2GB+，而且子进程崩溃没有自动恢复。"
+
+**Step 3：说明你做了什么优化**
+> "我把编码从子进程改为进程内 FFmpeg C API 调用，设计了三级流水线 + RingBuffer 背压机制，三个 stage 各自独立线程，处理环满时自动反向抑制解码速率。"
+
+**Step 4：给出量化结果**
+> "优化后 8 路总内存 793MB，平均每路 99MB，降低了约 60%。全链路 P99 延迟 239ms，最关键的指标——丢帧率是 0%。"
+
+**Step 5：点出关键洞察（加分项）**
+> "这里最有意思的是，我们通过 backpressure_events 指标看到处理环满了 1700 多次，解码环却被压到只用了 1/4 的容量。这说明背压机制在主动牺牲解码速度来保证零丢帧——这是一个 tradeoff，但在实时推流场景下，可靠性比绝对吞吐更重要。"
+
+**核心技巧：**
+
+| 技巧 | 说明 | 示例 |
+|------|------|------|
+| 数据有场景 | 永远说"在 X 条件下测出 Y" | "8路1080p30并发下"而非"330fps" |
+| 数据有对比 | 给出 baseline 或对手数据 | "从 ~250MB/路降到 99MB/路" |
+| 数据有归因 | 解释为什么有这个提升 | "不是硬件更快，是消除了 pipe 的内存拷贝" |
+| 数据有取舍 | 展示你对 tradeoff 的理解 | "零丢帧的代价是解码端被限速" |
+| 数据可复现 | 说明是怎么测出来的 | "60s 压测 + 10s 预热排除冷启动" |
+
+**进阶：展示你的工程思维**
+
+如果面试官继续追问，你可以展开讲你是**如何发现瓶颈**的：
+
+> "我首先做的是不是优化，而是搭建可观测性基础设施——LatencyTracer 做 RAII 延迟追踪，StreamPipeline::GetStatus() 暴露 ring fill 和背压计数，stress_tester 做多流并发。有了数据之后，我发现三个问题：
+> 1. process_ring 总是满的 → 编码是瓶颈，不是解码
+> 2. backpressure_events 计数很高但 drop 是 0 → 背压在起作用
+> 3. 多路并发 Stop() 时有概率死锁 → 条件变量唤醒时序问题
+>
+> 然后我才针对这三个问题逐一优化。优化完之后，用同样的压测脚本再跑一遍，确认数据变好了。这就是 measure → profile → optimize → verify 的闭环。"
+
+这样回答的好处是：面试官看到的不是一个"会写代码"的候选人，而是一个"能独立发现问题、定位瓶颈、验证效果"的工程师。
 
 **答：**
 

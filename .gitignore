@@ -57,3 +57,4 @@ runtime
 docs/superpowers
 *.log
 /scripts/__pycache__
+/stress_results

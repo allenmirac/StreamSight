@@ -215,13 +215,13 @@ cd build && cmake .. && make -j$(nproc) streamsight-stress
 # Generate test video
 ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=30" -t 120 \
     -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -an \
-    /tmp/stress_1080p30.mp4 -y
+    ./pic/stress_1080p30.mp4 -y
 
 # Run stress test: 8 streams, parallel mode, 60s
 ./build/bin/streamsight-stress \
     --count 8 --mode parallel --duration 60 --warmup 10 \
-    --input /tmp/stress_1080p30.mp4 \
-    --json-out /tmp/stress_result.json
+    --input ./pic/stress_1080p30.mp4 \
+    --json-out ./runtime/stress_result.json
 
 # Or use Python orchestrator for matrix testing
 pip install pyyaml
