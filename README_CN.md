@@ -121,7 +121,7 @@ docker-compose up -d srs
 ffplay rtmp://localhost:1935/live/stream
 ```
 
-详细说明见 [docs/rtmp-distribution.md](docs/rtmp-distribution.md).
+详细说明见下方「REST API」及 `docs/api.md`。
 
 ---
 
@@ -165,9 +165,11 @@ example/
 └── ...
 
 docs/
-├── rtmp-distribution.md     RTMP 分发架构说明
+├── architecture.md          系统架构说明
 ├── api.md                   REST API 文档
-└── ...
+├── setup.md                 安装与运行指南
+├── latency-testing-implementation.md  延迟测试实现
+└── cdn_sim_design.md        CDN 模拟调度设计 (LEGACY)
 ```
 
 ---
@@ -214,6 +216,10 @@ docs/
 
 ---
 
+## 参与贡献
+
+欢迎贡献！构建、测试与代码规范请见 [CONTRIBUTING.md](CONTRIBUTING.md)，并请遵守[行为准则](CODE_OF_CONDUCT.md)。
+
 ## 许可证
 
-[MIT License](LICENSE)
+[Apache License 2.0](LICENSE)

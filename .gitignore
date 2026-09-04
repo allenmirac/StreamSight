@@ -55,6 +55,7 @@ CLAUDE.md
 build
 runtime
 docs/superpowers
+docs/interview.md
 *.log
 /scripts/__pycache__
 /stress_results

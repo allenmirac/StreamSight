@@ -124,8 +124,6 @@ docker-compose up -d srs
 ffplay rtmp://localhost:1935/live/stream
 ```
 
-See [docs/rtmp-distribution.md](docs/rtmp-distribution.md) for details.
-
 ---
 
 ## Effect Plugin Architecture
@@ -175,9 +173,11 @@ tests/
 └── test_api_server.cpp
 
 docs/
-├── rtmp-distribution.md     RTMP distribution architecture
+├── architecture.md          System architecture (Chinese)
 ├── api.md                   REST API documentation
-└── ...
+├── setup.md                 Install & run guide
+├── latency-testing-implementation.md  Latency testing implementation
+└── cdn_sim_design.md        CDN simulation design (LEGACY)
 ```
 
 ---
@@ -287,6 +287,11 @@ The JSON output includes:
 
 ---
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and code style guidelines.
+Please also review our [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
-[MIT License](LICENSE)
+[Apache License 2.0](LICENSE)

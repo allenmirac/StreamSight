@@ -8,7 +8,7 @@
 | `src/observe/LatencyTracer.cpp` | 实现：JSONL 写入、环形缓冲区、统计聚合、后台写入线程 |
 | `scripts/analyze_latency.py` | Python 分析脚本，计算 avg/p50/p95/p99/max/jitter |
 | `scripts/run_latency_baseline.sh` | 一键基线测试脚本 |
-| `docs/latency_testing_implementation.md` | 本文件 |
+| `docs/latency-testing-implementation.md` | 本文件 |
 
 ## 2. 修改文件
 
