@@ -85,9 +85,6 @@ CMake 会自动检测 FFmpeg 和 OpenCV 依赖。若 FFmpeg 开发库未安装�
 ### 构建选项
 
 ```bash
-# 启用旧版目标（rtsp_analysis_server、rtsp_edge_analysis_server）
-cmake .. -DBUILD_LEGACY_TARGETS=ON && make -j$(nproc)
-
 # 启用测试目标（test_smoke 统一测试入口）
 cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 ```
@@ -99,8 +96,6 @@ cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 | `rtsp_server` | 基础 RTSP 服务器 |
 | `rtsp_pusher` | RTSP 推流工具 |
 | `rtsp_h264_file` | H.264 文件推流 |
-| `rtsp_analysis_server` | [LEGACY] AI 分析服务器（需 BUILD_LEGACY_TARGETS=ON） |
-| `rtsp_edge_analysis_server` | [LEGACY] CDN 边缘调度服务器（需 BUILD_LEGACY_TARGETS=ON） |
 | `ffmpeg_streamer` | ★ 主入口：StreamSession + API server（音视频 + RTMP） |
 | `streamsight-stress` | 压力测试工具（多流并发、性能基线） |
 | `test_event_bus` | EventBus 单元测试 |
@@ -127,38 +122,6 @@ cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 
 # 跳过 AI
 ./build/bin/ffmpeg_streamer --input pic/test.mp4 --no-ai --port 8554
-```
-
-### 模式二：本地视频文件（rtsp_analysis_server，LEGACY）
-
-```bash
-./build/bin/rtsp_analysis_server \
-  --source file \
-  --input test.h264 \
-  --width 640 --height 480 --fps 25 \
-  --port 8554 \
-  --http-port 8080
-```
-
-### 模式三：USB 摄像头（LEGACY）
-
-```bash
-./build/bin/rtsp_analysis_server \
-  --source camera \
-  --device 0 \
-  --width 1280 --height 720 --fps 30 \
-  --port 8554 \
-  --http-port 8080
-```
-
-### 模式四：RTSP 拉流转发（LEGACY）
-
-```bash
-./build/bin/rtsp_analysis_server \
-  --source rtsp \
-  --input rtsp://192.168.1.100:554/stream \
-  --port 8554 \
-  --http-port 8080
 ```
 
 ### 禁用 AI（仅转码推流）
@@ -286,10 +249,10 @@ sudo apt install libopencv-dev
 
 ```bash
 # 使用非特权端口
-./rtsp_analysis_server --port 8554
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --port 8554
 
 # 或给二进制添加 CAP_NET_BIND_SERVICE
-sudo setcap 'cap_net_bind_service=+eip' ./rtsp_analysis_server
+sudo setcap 'cap_net_bind_service=+eip' ./build/bin/ffmpeg_streamer
 ```
 
 **Q: AI 模型加载失败**

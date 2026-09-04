@@ -157,14 +157,14 @@ src/
 ├── effect/    EffectPlugin system (IEffectPlugin, EffectChain, FaceRecognitionPlugin, EffectFactory)
 ├── api/       HTTP REST API (StreamApiServer — session CRUD, effect config, metrics)
 ├── ai/        AI model loading (FaceDetector, FaceRecognizer, FaceDatabase, FrameAnalyzer)
-├── control/   Stream management + scheduling (LEGACY)
 ├── observe/   Observability (MetricsRegistry, LatencyTracer, EventBus)
-└── cdn_sim/   CDN edge simulation
+└── 3rdpart/   Third-party headers (httplib)
 
 example/
 ├── ffmpeg_streamer.cpp        ★ Main entry: StreamSession + API server
-├── rtsp_analysis_server.cpp     LEGACY (BUILD_LEGACY_TARGETS=ON)
-└── ...
+├── rtsp_server.cpp            Basic RTSP server demo
+├── rtsp_h264_file.cpp         H.264 file push demo
+└── rtsp_pusher.cpp            RTSP pusher demo
 
 tests/
 ├── test_event_bus.cpp

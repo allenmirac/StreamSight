@@ -155,14 +155,14 @@ src/
 ├── effect/    EffectPlugin 插件体系 (IEffectPlugin, EffectChain, FaceRecognitionPlugin, EffectFactory)
 ├── api/       HTTP REST API (StreamApiServer — session CRUD, 特效配置, 性能指标)
 ├── ai/        AI 模型加载 (FaceDetector, FaceRecognizer, FaceDatabase, FrameAnalyzer)
-├── control/   流管理 + 调度 (LEGACY)
 ├── observe/   可观测性 (MetricsRegistry, LatencyTracer, EventBus)
-└── cdn_sim/   CDN 边缘模拟
+└── 3rdpart/   第三方头文件 (httplib)
 
 example/
 ├── ffmpeg_streamer.cpp        ★ 主入口: StreamSession + API server
-├── rtsp_analysis_server.cpp     LEGACY (需要 BUILD_LEGACY_TARGETS=ON)
-└── ...
+├── rtsp_server.cpp            基础 RTSP 服务端示例
+├── rtsp_h264_file.cpp         H.264 文件推流示例
+└── rtsp_pusher.cpp            RTSP 推流器示例
 
 docs/
 ├── architecture.md          系统架构说明
