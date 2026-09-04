@@ -10,7 +10,7 @@
 
 // DEPRECATED — This abstract video source interface is superseded by FFmpeg C API
 // input handling in ffmpeg::FFmpegStreamer and ffmpeg::StreamPipeline.
-// Only used by legacy targets (rtsp_analysis_server, PipelineRunner).
+// Only used by deprecated legacy examples.
 // Do NOT use in new code.
 
 #include <opencv2/opencv.hpp>

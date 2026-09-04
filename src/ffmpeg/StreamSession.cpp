@@ -128,7 +128,11 @@ void StreamSession::Stop() {
         run_thread_.join();
     }
 
-    pipeline_mgr_.StopAll();
+    {
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = std::move(pipeline_); }
+        if (p) p->Stop();
+    }
     if (face_plugin_) face_plugin_->Close();
     effect_chain_.Clear();
     stopped_ = true;
@@ -139,7 +143,9 @@ SessionStatus StreamSession::GetStatus() const {
     s.running = running_;
     s.frames_processed = frame_count_;
     if (cfg_.pipeline_mode == "parallel") {
-        s.frames_processed = pipeline_mgr_.GetStats(cfg_.rtsp_suffix).frames_decoded;
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = pipeline_; }
+        if (p) s.frames_processed = p->FramesDecoded();
     }
     int64_t st = start_time_.load();
     if (st > 0) {
@@ -153,14 +159,17 @@ SessionStatus StreamSession::GetStatus() const {
 
     // Stress testing metrics (parallel mode only)
     if (cfg_.pipeline_mode == "parallel") {
-        auto stats = pipeline_mgr_.GetStats(cfg_.rtsp_suffix);
-        s.frames_dropped   = stats.frames_dropped_demux + stats.frames_dropped_ai;
-        s.frames_pruned    = stats.frames_pruned_demux + stats.frames_pruned_ai;
-        s.decode_ring_fill   = stats.decode_ring_fill;
-        s.process_ring_fill  = stats.process_ring_fill;
-        s.max_decode_ring_fill  = stats.max_decode_ring_fill;
-        s.max_process_ring_fill = stats.max_process_ring_fill;
-        s.backpressure_events   = stats.backpressure_events;
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = pipeline_; }
+        if (p) {
+            s.frames_dropped   = p->FramesDroppedDemux() + p->FramesDroppedAI();
+            s.frames_pruned    = p->FramesPrunedDemux() + p->FramesPrunedAI();
+            s.decode_ring_fill   = p->DecodeRingFill();
+            s.process_ring_fill  = p->ProcessRingFill();
+            s.max_decode_ring_fill  = p->MaxDecodeRingFill();
+            s.max_process_ring_fill = p->MaxProcessRingFill();
+            s.backpressure_events   = p->BackpressureEvents();
+        }
     }
 
     // Event loop performance
@@ -351,13 +360,26 @@ void StreamSession::RunParallel() {
     pcfg.outputs.push_back(rtsp_out_);
     if (rtmp_out_) pcfg.outputs.push_back(rtmp_out_);
 
-    pipeline_mgr_.AddStream(cfg_.rtsp_suffix, pcfg);
+    auto pipeline = std::make_shared<StreamPipeline>(cfg_.rtsp_suffix, pcfg);
+    if (!pipeline->Start()) {
+        std::cerr << "[StreamSession] pipeline start failed" << std::endl;
+        running_ = false;
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(pipeline_mutex_);
+        pipeline_ = std::move(pipeline);
+    }
 
     while (!stop_) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
-    pipeline_mgr_.StopAll();
+    {
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = std::move(pipeline_); }
+        if (p) p->Stop();
+    }
     running_ = false;
 }
 

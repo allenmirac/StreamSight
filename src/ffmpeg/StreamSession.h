@@ -1,18 +1,17 @@
 // StreamSession.h
-// Unified session abstraction that encapsulates EventLoop, RtspServer,
-// MediaSession, FaceRecognitionPlugin, EffectChain, PipelineManager/
-// FFmpegStreamer, RtspOutputAdapter, RtmpOutputAdapter, EventLogger,
-// and HttpApiServer behind a clean Start/Stop/GetStatus interface.
+// Unified single-stream session abstraction that encapsulates EventLoop,
+// RtspServer, MediaSession, FaceRecognitionPlugin, EffectChain,
+// StreamPipeline/FFmpegStreamer, RtspOutputAdapter, RtmpOutputAdapter and
+// EventLogger behind a clean Start/Stop/GetStatus interface.
 //
 // Supports two pipeline modes:
 //   serial   — FFmpegStreamer (single-threaded demux+decode+AI+encode+output)
-//   parallel — PipelineManager/StreamPipeline (3-stage with RingBuffers)
+//   parallel — StreamPipeline (3-stage with RingBuffers)
 
 #ifndef FFMPEG_STREAM_SESSION_H
 #define FFMPEG_STREAM_SESSION_H
 
 #include "StreamPipeline.h"
-#include "PipelineManager.h"
 #include "IOutputAdapter.h"
 #include "../effect/EffectChain.h"
 #include "../observe/EventBus.h"
@@ -66,7 +65,7 @@ struct StreamSessionConfig {
     int         eventloop_threads = 2;
     bool        enable_client_gating = true;
 
-    // Reconnect on EOF/error (serial mode only — parallel uses PipelineManager)
+    // Reconnect on EOF/error (serial mode only — parallel uses StreamPipeline)
     // When the input is an RTSP source, transient network errors cause
     // av_read_frame() to fail. Enabling reconnect prevents the session from
     // dying on the first error — the pipeline will Close+re-Open the demuxer.
@@ -185,8 +184,10 @@ private:
     streamsight::EffectChain           effect_chain_;
     std::shared_ptr<streamsight::IEffectPlugin> face_plugin_;
 
-    // Pipeline (used in parallel mode)
-    PipelineManager                    pipeline_mgr_;
+    // Pipeline (used in parallel mode). Guarded by pipeline_mutex_ for
+    // cross-thread access from GetStatus()/Stop() while RunParallel() runs.
+    std::shared_ptr<StreamPipeline>    pipeline_;
+    mutable std::mutex                 pipeline_mutex_;
 
     // Output adapters
     std::shared_ptr<IOutputAdapter>    rtsp_out_;
