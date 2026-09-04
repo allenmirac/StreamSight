@@ -109,6 +109,7 @@ set(FFMPEG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/AudioOutputAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamPipeline.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamSession.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg/StreamServer.cpp
 )
 
 # API layer
@@ -128,28 +129,7 @@ set(COMMON_SRCS
     ${OBSERVE_SRCS}
 )
 
-# Target 1: rtsp_server
-add_executable(rtsp_server
-    ${CMAKE_CURRENT_SOURCE_DIR}/example/rtsp_server.cpp
-    ${COMMON_SRCS}
-)
-target_link_libraries(rtsp_server ${COMMON_LIBS})
-
-# Target 2: rtsp_pusher
-add_executable(rtsp_pusher
-    ${CMAKE_CURRENT_SOURCE_DIR}/example/rtsp_pusher.cpp
-    ${COMMON_SRCS}
-)
-target_link_libraries(rtsp_pusher ${COMMON_LIBS})
-
-# Target 3: rtsp_h264_file
-add_executable(rtsp_h264_file
-    ${CMAKE_CURRENT_SOURCE_DIR}/example/rtsp_h264_file.cpp
-    ${COMMON_SRCS}
-)
-target_link_libraries(rtsp_h264_file ${COMMON_LIBS})
-
-# Target 4: ffmpeg_streamer (FFmpeg C API full pipeline)
+# Target 1: ffmpeg_streamer (FFmpeg C API full pipeline)
 if(FFMPEG_FOUND AND OpenCV_FOUND)
     add_executable(ffmpeg_streamer
         ${CMAKE_CURRENT_SOURCE_DIR}/example/ffmpeg_streamer.cpp
@@ -170,9 +150,6 @@ endif()
 
 # Print summary
 message(STATUS "Build targets:")
-message(STATUS "  - rtsp_server")
-message(STATUS "  - rtsp_pusher")
-message(STATUS "  - rtsp_h264_file")
 message(STATUS "  - ffmpeg_streamer")
 
 # ── Tests ────────────────────────────────────────────────────────────────

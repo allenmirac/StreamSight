@@ -16,12 +16,6 @@
 #include "Timer.h"
 #include "RingBuffer.h"
 
-#define TASK_SCHEDULER_PRIORITY_LOW       0
-#define TASK_SCHEDULER_PRIORITY_NORMAL    1
-#define TASK_SCHEDULER_PRIORITYO_HIGH     2 
-#define TASK_SCHEDULER_PRIORITY_HIGHEST   3
-#define TASK_SCHEDULER_PRIORITY_REALTIME  4
-
 namespace xop
 {
 

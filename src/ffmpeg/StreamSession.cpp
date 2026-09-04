@@ -2,6 +2,7 @@
 // Unified session abstraction implementation.
 
 #include "StreamSession.h"
+#include "StreamServer.h"
 #include "FFmpegStreamer.h"
 #include "FFmpegUtils.h"
 #include "RtspOutputAdapter.h"
@@ -28,22 +29,18 @@ StreamSession::~StreamSession() {
     Stop();
 }
 
-bool StreamSession::Start() {
+bool StreamSession::Start(StreamServer* server) {
     std::lock_guard<std::mutex> lock(lifecycle_mutex_);
     if (running_) return true;
     if (stopped_) return false;  // single-use, no restart
 
-    // ── RTSP server ─────────────────────────────────────────────────────
-    event_loop_ = std::make_shared<xop::EventLoop>(cfg_.eventloop_threads);
-    rtsp_server_ = xop::RtspServer::Create(event_loop_.get());
-
-    if (!rtsp_server_->Start("0.0.0.0", cfg_.rtsp_port)) {
-        std::cerr << "[StreamSession] RTSP bind failed on port "
-                  << cfg_.rtsp_port << std::endl;
-        rtsp_server_.reset();
-        event_loop_.reset();
+    if (!server || !server->GetRtspServer()) {
+        std::cerr << "[StreamSession] no shared StreamServer available" << std::endl;
         return false;
     }
+
+    rtsp_server_ = server->GetRtspServer();
+    event_loop_  = server->GetEventLoop();
 
     xop::MediaSession* session = xop::MediaSession::CreateNew(cfg_.rtsp_suffix);
     session->AddSource(xop::channel_0, xop::H264Source::CreateNew(cfg_.fps));
@@ -52,6 +49,14 @@ bool StreamSession::Start() {
                            xop::AACSource::CreateNew(44100, 2, true));
     }
     session_id_ = rtsp_server_->AddSession(session);
+    if (session_id_ == 0) {
+        std::cerr << "[StreamSession] duplicate RTSP suffix: /" << cfg_.rtsp_suffix
+                  << std::endl;
+        delete session;  // AddSession did not take ownership on duplicate
+        rtsp_server_ = nullptr;
+        event_loop_  = nullptr;
+        return false;
+    }
 
     // ── Client-aware pipeline gating: register lifecycle callbacks ─────
     session->AddNotifyConnectedCallback(
@@ -59,7 +64,7 @@ bool StreamSession::Start() {
     session->AddNotifyDisconnectedCallback(
         [this](xop::MediaSessionId, std::string, uint16_t) { OnClientDisconnected(); });
 
-    std::cout << "[StreamSession] RTSP: rtsp://localhost:" << cfg_.rtsp_port
+    std::cout << "[StreamSession] RTSP: rtsp://localhost:" << rtsp_server_->GetPort()
               << "/" << cfg_.rtsp_suffix << std::endl;
 
     // ── EffectChain (from JSON or default FaceRecognition) ──────────────
@@ -87,7 +92,7 @@ bool StreamSession::Start() {
 
     // ── Output adapters ─────────────────────────────────────────────────
     rtsp_out_ = std::make_shared<RtspOutputAdapter>(
-        rtsp_server_.get(), session_id_, (int)xop::channel_0);
+        rtsp_server_, session_id_, (int)xop::channel_0);
 
     if (!cfg_.rtmp_url.empty()) {
         rtmp_out_ = std::make_shared<RtmpOutputAdapter>(cfg_.rtmp_url);
@@ -111,19 +116,14 @@ bool StreamSession::Start() {
 
 void StreamSession::Stop() {
     std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-    if (!running_) {
-        // Thread may have finished on its own (e.g. video EOF) — still join
-        if (run_thread_.joinable()) {
-            run_thread_.join();
-        }
-        return;
+    if (running_) {
+        stop_ = true;
+        running_ = false;
+        // Wake pipeline thread from WaitForClients() so it can check stop_ and exit
+        client_cv_.notify_all();
     }
-    stop_ = true;
-    running_ = false;
 
-    // Wake pipeline thread from WaitForClients() so it can check stop_ and exit
-    client_cv_.notify_all();
-
+    // Join the run thread whether it is still running or finished naturally.
     if (run_thread_.joinable()) {
         run_thread_.join();
     }
@@ -133,6 +133,12 @@ void StreamSession::Stop() {
         { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = std::move(pipeline_); }
         if (p) p->Stop();
     }
+    if (rtsp_server_ && session_id_ != 0) {
+        rtsp_server_->RemoveSession(session_id_);
+    }
+    session_id_  = 0;
+    rtsp_server_ = nullptr;
+    event_loop_  = nullptr;
     if (face_plugin_) face_plugin_->Close();
     effect_chain_.Clear();
     stopped_ = true;
@@ -153,7 +159,7 @@ SessionStatus StreamSession::GetStatus() const {
             std::chrono::system_clock::now().time_since_epoch()).count();
         s.uptime_seconds = now - st;
     }
-    s.rtsp_port = cfg_.rtsp_port;
+    s.rtsp_port = rtsp_server_ ? rtsp_server_->GetPort() : 0;
     s.http_port = cfg_.http_port;
     s.stream_id = cfg_.rtsp_suffix;
 
@@ -202,7 +208,7 @@ std::vector<std::string> StreamSession::GetEffectNames() const {
 }
 
 void* StreamSession::GetRtspServer() const {
-    return rtsp_server_.get();
+    return rtsp_server_;
 }
 
 uint32_t StreamSession::GetSessionId() const {
@@ -344,7 +350,7 @@ void StreamSession::RunParallel() {
         pcfg.client_cv   = &client_cv_;
         pcfg.client_mutex = &client_mutex_;
     }
-    pcfg.audio_rtsp_server  = rtsp_server_.get();
+    pcfg.audio_rtsp_server  = rtsp_server_;
     pcfg.audio_session_id   = session_id_;
     pcfg.audio_channel      = (int)xop::channel_1;
 

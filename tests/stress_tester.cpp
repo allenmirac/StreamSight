@@ -3,6 +3,7 @@
 // Creates N StreamSessions, collects metrics, outputs JSON report.
 
 #include "ffmpeg/StreamSession.h"
+#include "ffmpeg/StreamServer.h"
 #include "observe/LatencyTracer.h"
 #include <iostream>
 #include <fstream>
@@ -96,6 +97,14 @@ public:
         observe::LatencyTracer::Instance().SetLogPath("/tmp/stress_latency.jsonl");
         observe::LatencyTracer::Instance().Enable(true);
 
+        // One process-level RTSP server shared by all streams.
+        ffmpeg::StreamServer server;
+        if (!server.Start("0.0.0.0", cfg_.base_port)) {
+            std::cerr << "[stress] StreamServer bind failed on port "
+                      << cfg_.base_port << std::endl;
+            return 1;
+        }
+
         // Create sessions
         for (int i = 0; i < cfg_.count; ++i) {
             ffmpeg::StreamSessionConfig sc;
@@ -104,7 +113,6 @@ public:
             sc.height          = cfg_.height;
             sc.fps             = cfg_.fps;
             sc.bitrate         = cfg_.bitrate;
-            sc.rtsp_port       = cfg_.base_port + i;
             sc.rtsp_suffix     = "stress_" + std::to_string(i);
             sc.http_port       = 0;
             sc.enable_ai       = cfg_.enable_ai;
@@ -117,13 +125,13 @@ public:
             sc.max_frame_age_ms = 500;
 
             auto session = std::make_shared<ffmpeg::StreamSession>(sc);
-            if (!session->Start()) {
+            if (!session->Start(&server)) {
                 std::cerr << "[stress] Session " << i << " start failed" << std::endl;
                 return 1;
             }
             sessions_.push_back(session);
             std::cerr << "[stress] Session " << i
-                      << " started on port " << sc.rtsp_port << std::endl;
+                      << " started on suffix /" << sc.rtsp_suffix << std::endl;
         }
 
         // Warmup
@@ -180,6 +188,7 @@ public:
         for (auto& s : sessions_) {
             s->Stop();
         }
+        server.Stop();
 
         // Collect latency stats
         auto latency_stats = observe::LatencyTracer::Instance().GetStats();

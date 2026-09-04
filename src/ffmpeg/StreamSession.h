@@ -1,8 +1,8 @@
 // StreamSession.h
-// Unified single-stream session abstraction that encapsulates EventLoop,
-// RtspServer, MediaSession, FaceRecognitionPlugin, EffectChain,
-// StreamPipeline/FFmpegStreamer, RtspOutputAdapter, RtmpOutputAdapter and
-// EventLogger behind a clean Start/Stop/GetStatus interface.
+// Unified single-stream session abstraction. Owns the media pipeline
+// (StreamPipeline/FFmpegStreamer) and the effect chain, and attaches a
+// MediaSession to a shared process-level StreamServer (which owns the
+// EventLoop + RtspServer shared across all streams).
 //
 // Supports two pipeline modes:
 //   serial   — FFmpegStreamer (single-threaded demux+decode+AI+encode+output)
@@ -38,6 +38,8 @@ class IEffectPlugin;
 
 namespace ffmpeg {
 
+class StreamServer;
+
 // ── Configuration ──────────────────────────────────────────────────────────
 
 struct StreamSessionConfig {
@@ -48,7 +50,6 @@ struct StreamSessionConfig {
     int         fps    = 25;
 
     // Network
-    int         rtsp_port = 8554;
     std::string rtsp_suffix = "live";
     int         http_port = 8080;
     std::string rtmp_url;
@@ -62,7 +63,6 @@ struct StreamSessionConfig {
     int         ringbuf_size   = 4;
     int         max_frame_age_ms = 500;
     int         time_window_ms   = 0;
-    int         eventloop_threads = 2;
     bool        enable_client_gating = true;
 
     // Reconnect on EOF/error (serial mode only — parallel uses StreamPipeline)
@@ -130,9 +130,11 @@ public:
     StreamSession(const StreamSession&) = delete;
     StreamSession& operator=(const StreamSession&) = delete;
 
-    // Start the full pipeline. Returns false on port bind failure or
-    // configuration error. Idempotent if already running.
-    bool Start();
+    // Start the full pipeline against a shared StreamServer (one per process).
+    // Registers this session's MediaSession with the shared RtspServer.
+    // Returns false on configuration error or duplicate RTSP suffix.
+    // Idempotent if already running.
+    bool Start(StreamServer* server);
 
     // Stop all processing, close AI plugins, and join threads.
     // Idempotent if already stopped.
@@ -174,11 +176,11 @@ private:
     std::atomic<bool>    stopped_{false};  // single-use: no restart after Stop
     mutable std::mutex   lifecycle_mutex_;
 
-    // RTSP infrastructure. EventLoop is explicitly started; RtspServer
-    // shared_ptr keeps the server alive for the session lifetime.
-    std::shared_ptr<xop::EventLoop>   event_loop_;
-    std::shared_ptr<xop::RtspServer>  rtsp_server_;
-    xop::MediaSessionId               session_id_  = 0;
+    // RTSP infrastructure, owned by the shared StreamServer. Non-owning —
+    // the StreamServer outlives every session it hosts.
+    xop::RtspServer*    rtsp_server_ = nullptr;
+    xop::EventLoop*     event_loop_  = nullptr;
+    xop::MediaSessionId session_id_  = 0;
 
     // AI / Effect plugin chain
     streamsight::EffectChain           effect_chain_;
