@@ -26,7 +26,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 | 网络通信层 | `src/net/` | 提供基于 Reactor 模式的异步事件驱动网络框架，封装 epoll/select、TCP 连接管理、定时器和内存管理 |
 | RTSP 流媒体层 | `src/xop/` | 实现 RTSP/RTP/RTCP 协议栈，包括服务端、推流端、媒体会话管理、多种编码格式的媒体源封装、RTCP SR 发送和 SEI 延迟标记注入 |
 | AI 分析层 | `src/ai/` | 提供多类型视频源接入、人脸检测与识别、帧分析调度、画面叠加绘制、H.264 软编码（fork+pipe）和事件日志 |
-| FFmpeg 管线层 | `src/ffmpeg/` | 提供基于 FFmpeg C API 的进程内媒体管线：StreamSession 统一单流会话抽象，StreamPipeline 3-stage 并行管线（Demux+Decode → AI Process → Encode+Output），FrameDropPolicy 自适应丢帧，支持音视频混合和多协议输出 |
+| FFmpeg 管线层 | `src/ffmpeg/` | 提供基于 FFmpeg C API 的进程内媒体管线：StreamServer 进程级共享 EventLoop+RtspServer，StreamSession 单流会话抽象，StreamPipeline 3-stage 并行管线（Demux+Decode → AI Process → Encode+Output），FrameDropPolicy 自适应丢帧，支持音视频混合和多协议输出 |
 | EffectPlugin 插件层 | `src/effect/` | 提供 IEffectPlugin 统一接口、EffectChain 有序执行链、EffectFactory JSON 配置化创建，FaceRecognitionPlugin 作为首个内置插件 |
 | API 服务层 | `src/api/` | StreamApiServer 合并式 HTTP API，整合旧版路由（/api/current、/api/faces 等）和 v1 session CRUD（/api/v1/sessions）及 latency 查询 |
 | 可观测性层 | `src/observe/` | 提供线程安全的内存键值指标注册与快照导出（MetricsRegistry）、RAII 延迟追踪（LatencyTracer）和模板化 EventBus 事件发布/订阅 |
@@ -35,7 +35,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 ### 2.2 模块调用关系
 
-网络通信层为所有上层模块提供异步 I/O 能力。RTSP 流媒体层构建在网络层之上，对外暴露 RTSP 服务端和推流端接口。FFmpeg 管线层通过 StreamSession 统一管理 EventLoop、RtspServer 和 StreamPipeline 的生命周期，StreamPipeline 以 3-stage 并行管线完成解封装→解码→AI 处理→编码→多输出的全流程，EffectChain 在 AI 处理阶段有序执行注册的 IEffectPlugin。StreamApiServer 提供查询路由和 v1 session CRUD 接口，是多流会话的唯一注册表。可观测性层以横切方式嵌入各层，采集和暴露运行指标，EventBus 提供模块间松耦合事件通知。
+网络通信层为所有上层模块提供异步 I/O 能力。RTSP 流媒体层构建在网络层之上，对外暴露 RTSP 服务端和推流端接口。FFmpeg 管线层通过 StreamServer 统一持有进程级 EventLoop+RtspServer（所有流共享其线程），StreamSession 作为单流会话挂载到该服务器并持有 StreamPipeline，StreamPipeline 以 3-stage 并行管线完成解封装→解码→AI 处理→编码→多输出的全流程，EffectChain 在 AI 处理阶段有序执行注册的 IEffectPlugin。StreamApiServer 提供查询路由和 v1 session CRUD 接口，是多流会话的唯一注册表。可观测性层以横切方式嵌入各层，采集和暴露运行指标，EventBus 提供模块间松耦合事件通知。
 
 ### 2.3 数据流转概览
 
@@ -53,11 +53,11 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 | 路径 | 类型 | 说明 |
 |------|------|------|
-| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 4 个构建目标 + 5 个 test 目标 + stress 目标 |
+| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 1 个主构建目标 + 5 个 test 目标 + stress 目标 |
 | `README.md` / `README_CN.md` | 文件 | 中英文项目说明，含功能介绍、快速开始指南和目录结构 |
 | `LICENSE` | 文件 | MIT 开源许可证 |
 | `docs/` | 目录 | 项目文档，含架构说明、API 接口文档、安装指南、CDN 设计、延迟测试方案和技术问答 |
-| `example/` | 目录 | 4 个入口程序源文件，主入口为 ffmpeg_streamer.cpp |
+| `example/` | 目录 | 入口程序源文件，主入口为 ffmpeg_streamer.cpp |
 | `src/` | 目录 | 全部库和模块源码，按功能分为 8 个子目录（net/xop/ai/ffmpeg/effect/api/observe/3rdpart） |
 | `tests/` | 目录 | 测试源文件，覆盖 EventBus、EffectFactory、StreamSession、StreamApiServer 及 stress tester |
 | `scripts/` | 目录 | 辅助脚本：analyze_latency.py（延迟分析）、run_latency_baseline.sh（一键基线测试）、stress_test.py（压力测试）、tune_kernel.sh |
@@ -80,6 +80,15 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 - `TaskScheduler` 为任务调度器的抽象基类，定义了事件注册、移除和循环调度的统一接口。
 - `EpollTaskScheduler` 和 `SelectTaskScheduler` 分别是 Linux（epoll）和 Windows（select）平台的具体实现，通过条件编译在编译期选择。
 - `Channel` 封装了文件描述符及其关注的事件类型和回调函数，是事件分发的基本单元。
+
+**多线程 Reactor 设计原理**
+
+`EventLoop` 不是单线程的：它内部持有 N 个 `EpollTaskScheduler` 线程（每个线程独立轮询一个 epoll 实例），N 与流数解耦，默认取 `std::thread::hardware_concurrency()`。之所以用多个 epoll 线程，核心有两点：
+
+1. **避免队头阻塞（head-of-line blocking）**：单线程 Reactor 把「接受连接 + 所有连接的读写回调」串行化，任何一个慢客户端（如 RTP over TCP 的解析、阻塞的 send）都会卡住整个事件循环，拖垮所有连接。多线程把连接 I/O 分摊到多条线程，慢连接被隔离在其中一条上。
+2. **横向扩展**：epoll 事件处理本身是 CPU 密集的，单核吞吐有上限；N 个 epoll 实例并行轮询，可以把 I/O 事件分发的吞吐扩展到多核。
+
+线程分工是确定的：`scheduler[0]` 专职 accept + 定时器（`Acceptor` 走 `UpdateChannel`，`AddTimer`/`AddTriggerEvent` 也固定落在该线程），客户端连接通过 `GetTaskScheduler()` 从 `scheduler[1..N-1]` 轮询分配，监听与定时器永不与连接收发抢 CPU。对本项目，EventLoop 只承担 RTSP 信令 + RTP 推送（非阻塞 send），重活（解码/编码/AI）都在管线线程，因此一个进程级 EventLoop（N = 核数）即可支撑任意多路流，无需为每路流单独建 EventLoop。
 
 **TCP 通信组件**
 
@@ -164,9 +173,15 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 该模块基于 FFmpeg C API（libavformat / libavcodec / libavutil / libswscale）实现了进程内媒体管线，替代了旧有的 fork/pipe FFmpeg 子进程方案。当前包含以下核心组件：
 
+**StreamServer — 进程级共享 RTSP 服务器**
+
+- 持有唯一的 `xop::EventLoop` + `xop::RtspServer`，绑定单一端口，所有流的 `StreamSession` 都挂载到它之上，共享同一套事件循环线程（线程数默认 `hardware_concurrency()`，与流数解耦）。
+- `Start(bind_ip, port, eventloop_threads)` / `Stop()` / `GetRtspServer()` / `GetEventLoop()` 提供服务器生命周期与访问接口。
+- 一个进程一个 `StreamServer`，彻底消除「每流一个 EventLoop + 每流一个端口」的冗余设计。
+
 **StreamSession — 统一会话抽象**
 
-- `StreamSession` 是面向使用者的单流会话入口，将 EventLoop、RtspServer、MediaSession、FaceRecognitionPlugin、EffectChain、StreamPipeline/FFmpegStreamer、OutputAdapter 封装在统一的 Start/Stop/GetStatus 接口之后。
+- `StreamSession` 是面向使用者的单流会话入口，持有 MediaSession、FaceRecognitionPlugin、EffectChain、StreamPipeline/FFmpegStreamer、OutputAdapter，通过 `Start(StreamServer*)` 挂载到进程级共享服务器，封装在统一的 Start/Stop/GetStatus 接口之后。
 - `StreamSessionConfig` 统一配置输入源、编码参数、管线模式（serial/parallel）、RingBuffer 大小、AI 开关、音频开关、RTMP URL 和 Effect JSON 配置。
 - 支持两种管线模式：`serial`（FFmpegStreamer 单线程 demux+decode+AI+encode+output）和 `parallel`（StreamPipeline 3-stage 并行管线）。
 - 内建 client-aware pipeline gating：仅在有 RTSP 客户端连接时驱动管线，无客户端时阻塞等待，节省 CPU。
@@ -262,9 +277,6 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 | 程序 | 源文件 | 用途 |
 |------|--------|------|
-| `rtsp_server` | `example/rtsp_server.cpp` | 基础 RTSP 服务端示例，展示如何创建 EventLoop、RtspServer 和 MediaSession |
-| `rtsp_pusher` | `example/rtsp_pusher.cpp` | RTSP 推流器示例，展示如何将本地流推送到远端 RTSP 服务器 |
-| `rtsp_h264_file` | `example/rtsp_h264_file.cpp` | 本地 H.264 文件推流示例，读取 H.264 裸流文件并通过 RTSP 分发 |
 | `ffmpeg_streamer` | `example/ffmpeg_streamer.cpp` | ★ 主入口：StreamSession + StreamApiServer，支持 serial/parallel 管线、EffectPlugin、RTMP 输出、session CRUD |
 | `streamsight-stress` | `tests/stress_tester.cpp` | 压力测试工具，支持多流并发、性能基线采集和 backpressure 验证 |
 | `test_*` | `tests/test_*.cpp` | 单元/集成测试：test_event_bus、test_effect_factory、test_stream_session、test_api_server |
@@ -374,6 +386,7 @@ StreamSight 系统架构 (数据流 / 控制流)
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        FFmpeg 管线层 (src/ffmpeg/)                       │
 │                                                                         │
+│  StreamServer (进程级: EventLoop + RtspServer, 单端口, 所有流共享线程)      │
 │  StreamSession (单流会话: Start/Stop/GetStatus/EventBus)                  │
 │    ├─ serial   → FFmpegStreamer (单线程 demux+decode+AI+encode+output)    │
 │    └─ parallel → StreamPipeline (3-stage: Demux→AI→Encode + RingBuffer)   │

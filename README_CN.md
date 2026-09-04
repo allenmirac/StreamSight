@@ -159,10 +159,7 @@ src/
 └── 3rdpart/   第三方头文件 (httplib)
 
 example/
-├── ffmpeg_streamer.cpp        ★ 主入口: StreamSession + API server
-├── rtsp_server.cpp            基础 RTSP 服务端示例
-├── rtsp_h264_file.cpp         H.264 文件推流示例
-└── rtsp_pusher.cpp            RTSP 推流器示例
+└── ffmpeg_streamer.cpp        ★ 主入口: StreamSession + API server
 
 docs/
 ├── architecture.md          系统架构说明

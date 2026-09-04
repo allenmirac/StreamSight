@@ -93,9 +93,6 @@ cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 
 | 目标 | 说明 |
 |------|------|
-| `rtsp_server` | 基础 RTSP 服务器 |
-| `rtsp_pusher` | RTSP 推流工具 |
-| `rtsp_h264_file` | H.264 文件推流 |
 | `ffmpeg_streamer` | ★ 主入口：StreamSession + API server（音视频 + RTMP） |
 | `streamsight-stress` | 压力测试工具（多流并发、性能基线） |
 | `test_event_bus` | EventBus 单元测试 |

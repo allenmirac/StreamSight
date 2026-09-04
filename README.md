@@ -161,10 +161,7 @@ src/
 └── 3rdpart/   Third-party headers (httplib)
 
 example/
-├── ffmpeg_streamer.cpp        ★ Main entry: StreamSession + API server
-├── rtsp_server.cpp            Basic RTSP server demo
-├── rtsp_h264_file.cpp         H.264 file push demo
-└── rtsp_pusher.cpp            RTSP pusher demo
+└── ffmpeg_streamer.cpp        ★ Main entry: StreamSession + API server
 
 tests/
 ├── test_event_bus.cpp
