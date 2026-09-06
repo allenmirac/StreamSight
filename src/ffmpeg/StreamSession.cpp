@@ -259,7 +259,7 @@ void StreamSession::RunSerial() {
 
             event_bus_.Publish(FrameProcessedEvent{
                 cfg_.rtsp_suffix,
-                static_cast<int64_t>(frame_count_++),
+                f.frame_index,
                 static_cast<int64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()
@@ -283,7 +283,9 @@ void StreamSession::RunSerial() {
     }
 
     while (!stop_) {
-        WaitForClients();  // blocks until RTSP client connects
+        if (cfg_.enable_client_gating) {
+            WaitForClients();  // blocks until RTSP client connects
+        }
         if (stop_) break;
 
         if (!streamer.IsOpened()) break;
@@ -302,7 +304,9 @@ void StreamSession::RunSerial() {
             for (int i = 0; i < cfg_.max_reconnect && !stop_; ++i) {
                 std::this_thread::sleep_for(
                     std::chrono::milliseconds(cfg_.reconnect_delay_ms));
-                WaitForClients();  // check stop_ flag
+                if (cfg_.enable_client_gating) {
+                    WaitForClients();  // check stop_ flag
+                }
                 if (stop_) break;
                 if (streamer.Open()) {
                     reconnected = true;
@@ -321,6 +325,8 @@ void StreamSession::RunSerial() {
             }
             continue;
         }
+
+        ++frame_count_;
     }
 
     streamer.Close();

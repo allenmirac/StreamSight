@@ -8,7 +8,7 @@
 #define AI_FACE_DETECTOR_H
 
 #include <opencv2/opencv.hpp>
-#include <opencv2/dnn.hpp>
+#include <opencv2/objdetect/face.hpp>
 #include <vector>
 #include <string>
 
@@ -61,11 +61,7 @@ private:
     float        nms_thresh_;
     cv::Size     input_size_;
     bool         loaded_ = false;
-    cv::dnn::Net net_;
-
-    // Post-process raw detections into FaceBox list
-    std::vector<FaceBox> PostProcess(const std::vector<cv::Mat>& outs,
-                                     int img_w, int img_h);
+    cv::Ptr<cv::FaceDetectorYN> net_;
 };
 
 } // namespace ai

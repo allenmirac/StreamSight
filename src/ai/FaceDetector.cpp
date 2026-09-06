@@ -18,18 +18,20 @@ FaceDetector::FaceDetector(const std::string& model_path,
 
 bool FaceDetector::Load() {
     try {
-        net_ = cv::dnn::readNetFromONNX(model_path_);
+        // YuNet (YuFaceDetectNet) emits 12 multi-scale tensors; FaceDetectorYN
+        // handles the anchor decode + NMS, so we don't hand-roll postprocessing.
+        net_ = cv::FaceDetectorYN::create(model_path_, "",
+                                          input_size_, score_thresh_, nms_thresh_,
+                                          /*top_k=*/5000);
     } catch (const cv::Exception& e) {
         std::cerr << "[FaceDetector] Failed to load " << model_path_
                   << ": " << e.what() << std::endl;
         return false;
     }
-    if (net_.empty()) {
-        std::cerr << "[FaceDetector] Network is empty after loading." << std::endl;
+    if (!net_) {
+        std::cerr << "[FaceDetector] FaceDetectorYN is empty after loading." << std::endl;
         return false;
     }
-    net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-    net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
     loaded_ = true;
     return true;
 }
@@ -38,97 +40,32 @@ std::vector<FaceBox> FaceDetector::Detect(const cv::Mat& frame) {
     STREAMSIGHT_LATENCY_SCOPE("ai", "face_detection");
     if (!loaded_ || frame.empty()) return {};
 
-    // Build blob: 1×3×H×W, mean subtracted, BGR order
-    cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0,
-                                          input_size_,
-                                          cv::Scalar(104, 117, 123),
-                                          /*swapRB=*/false,
-                                          /*crop=*/false);
-    net_.setInput(blob);
+    // YuNet's FPN skip-connections require a multiple-of-32 input, so run at
+    // the fixed input_size_ and scale the boxes back to the original frame.
+    cv::Mat resized;
+    cv::resize(frame, resized, input_size_);
 
-    std::vector<cv::Mat> outs;
+    cv::Mat detections;  // N×15: [x, y, w, h, 5×landmarks(x,y), score]
     try {
-        net_.forward(outs, net_.getUnconnectedOutLayersNames());
+        net_->detect(resized, detections);
     } catch (const cv::Exception& e) {
         std::cerr << "[FaceDetector] Inference error: " << e.what() << std::endl;
         return {};
     }
 
-    return PostProcess(outs, frame.cols, frame.rows);
-}
-
-std::vector<FaceBox> FaceDetector::PostProcess(
-        const std::vector<cv::Mat>& outs, int img_w, int img_h) {
-    std::vector<FaceBox>  boxes;
-    std::vector<float>    confidences;
-    std::vector<cv::Rect> rects;
-
-    for (const cv::Mat& out : outs) {
-        // Expected shape: [1, N, 7] where each row is
-        // [_, class_id, conf, x1, y1, x2, y2] (SSD format)
-        // or [N, 15] (SCRFD/RetinaFace: x1,y1,x2,y2,conf, landmarks...)
-        // We handle both by checking the column count.
-        const float* data = (const float*)out.data;
-        int rows = out.total() / (out.cols > 0 ? out.cols : 7);
-        int cols = out.cols > 0 ? out.cols : 7;
-
-        for (int i = 0; i < rows; ++i) {
-            const float* row = data + i * cols;
-            float conf;
-            float x1, y1, x2, y2;
-
-            if (cols == 7) {
-                // SSD-style: [image_id, class_id, conf, x1, y1, x2, y2]
-                conf = row[2];
-                x1 = row[3] * img_w;
-                y1 = row[4] * img_h;
-                x2 = row[5] * img_w;
-                y2 = row[6] * img_h;
-            } else if (cols >= 5) {
-                // RetinaFace/SCRFD style: [x1, y1, x2, y2, conf, ...]
-                x1 = row[0]; y1 = row[1];
-                x2 = row[2]; y2 = row[3];
-                conf = row[4];
-                // Check if coords are normalized [0,1]
-                if (x2 <= 1.0f) {
-                    x1 *= img_w; y1 *= img_h;
-                    x2 *= img_w; y2 *= img_h;
-                }
-            } else {
-                continue;
-            }
-
-            if (conf < score_thresh_) continue;
-
-            int lx = std::max(0, (int)x1);
-            int ly = std::max(0, (int)y1);
-            int w  = std::min(img_w, (int)x2) - lx;
-            int h  = std::min(img_h, (int)y2) - ly;
-            if (w <= 0 || h <= 0) continue;
-
-            confidences.push_back(conf);
-            rects.emplace_back(lx, ly, w, h);
-        }
-    }
-
-    // NMS
-    std::vector<int> indices;
-    cv::dnn::NMSBoxes(rects, confidences, score_thresh_, nms_thresh_, indices);
+    const float sx = static_cast<float>(frame.cols) / input_size_.width;
+    const float sy = static_cast<float>(frame.rows) / input_size_.height;
 
     std::vector<FaceBox> result;
-    result.reserve(indices.size());
-    for (int idx : indices) {
+    if (detections.empty()) return result;
+    result.reserve(detections.rows);
+    for (int i = 0; i < detections.rows; ++i) {
+        const float* r = detections.ptr<float>(i);
         FaceBox fb;
-        fb.rect       = rects[idx];
-        fb.confidence = confidences[idx];
+        fb.rect       = cv::Rect2f(r[0] * sx, r[1] * sy, r[2] * sx, r[3] * sy);
+        fb.confidence = r[14];
         result.push_back(fb);
     }
-
-    // Sort by confidence descending
-    std::sort(result.begin(), result.end(),
-              [](const FaceBox& a, const FaceBox& b) {
-                  return a.confidence > b.confidence;
-              });
     return result;
 }
 
