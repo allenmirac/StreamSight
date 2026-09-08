@@ -8,13 +8,9 @@
 
 // StreamSight Platform (Phase 2)
 #include "ffmpeg/StreamSession.h"
+#include "ffmpeg/StreamServer.h"
 #include "api/StreamApiServer.h"
 #include "effect/FaceRecognitionPlugin.h"
-
-#include "xop/RtspServer.h"
-#include "xop/H264Source.h"
-#include "xop/AACSource.h"
-#include "net/EventLoop.h"
 
 #include <iostream>
 #include <thread>
@@ -86,7 +82,7 @@ int main(int argc, char** argv) {
     cfg.width           = std::stoi(args["width"]);
     cfg.height          = std::stoi(args["height"]);
     cfg.fps             = std::stoi(args["fps"]);
-    cfg.rtsp_port       = std::stoi(args["port"]);
+    int rtsp_port       = std::stoi(args["port"]);
     cfg.http_port       = std::stoi(args["http-port"]);
     cfg.bitrate         = std::stoi(args["bitrate"]);
     cfg.enc_threads     = std::stoi(args["threads"]);
@@ -113,14 +109,21 @@ int main(int argc, char** argv) {
         cfg.effects_json = json.str();
     }
 
+    // ── Process-level shared RTSP server (one EventLoop, streams share its threads) ──
+    ffmpeg::StreamServer server;
+    if (!server.Start("0.0.0.0", rtsp_port)) {
+        std::cerr << "[Main] StreamServer bind failed on port " << rtsp_port << std::endl;
+        return 1;
+    }
+
     // ── Create and start session ─────────────────────────────
     auto session = std::make_shared<ffmpeg::StreamSession>(cfg);
-    if (!session->Start()) {
+    if (!session->Start(&server)) {
         std::cerr << "[Main] StreamSession start failed" << std::endl;
         return 1;
     }
 
-    std::cout << "[Main] RTSP: rtsp://localhost:" << cfg.rtsp_port
+    std::cout << "[Main] RTSP: rtsp://localhost:" << server.Port()
               << "/" << cfg.rtsp_suffix << std::endl;
     if (!cfg.rtmp_url.empty()) {
         std::cout << "[Main] RTMP: " << cfg.rtmp_url << std::endl;
@@ -138,7 +141,7 @@ int main(int argc, char** argv) {
         face_recog = face_plugin->GetRecognizer();
     }
 
-    api::StreamApiServer api_server(cfg.http_port, face_db, face_recog);
+    api::StreamApiServer api_server(cfg.http_port, face_db, face_recog, 1000, &server);
     std::string session_id = api_server.RegisterSession(session);
     api_server.Start();
 
@@ -165,6 +168,7 @@ int main(int argc, char** argv) {
     session->GetEventBus().Unsubscribe(bus_handle);
     api_server.Stop();
     session->Stop();
+    server.Stop();
 
     std::cout << "[Main] Done." << std::endl;
     return 0;

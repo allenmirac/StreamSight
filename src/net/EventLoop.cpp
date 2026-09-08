@@ -1,18 +1,6 @@
 #include "EventLoop.h"
 #include "EpollTaskScheduler.h"
 
-#if defined(__linux) || defined(__linux__)
-#include <pthread.h>
-#endif
-#if defined(WIN32) || defined(_WIN32)
-#include<windows.h>
-#endif
-
-#if defined(WIN32) || defined(_WIN32)
-#pragma comment(lib, "Ws2_32.lib")
-#pragma comment(lib,"Iphlpapi.lib")
-#endif
-
 using namespace xop;
 
 EventLoop::EventLoop(uint32_t num_threads)
@@ -66,41 +54,7 @@ void EventLoop::Loop()
 #endif
 		task_schedulers_.push_back(task_scheduler_ptr);
 		std::shared_ptr<std::thread> thread(new std::thread(&TaskScheduler::Start, task_scheduler_ptr.get()));
-		thread->native_handle();
 		threads_.push_back(thread);
-	}
-
-	const int priority = TASK_SCHEDULER_PRIORITY_REALTIME;
-
-	for (auto iter : threads_)
-	{
-#if defined(__linux) || defined(__linux__)
-		if (priority == TASK_SCHEDULER_PRIORITY_REALTIME ||
-		    priority == TASK_SCHEDULER_PRIORITY_HIGHEST) {
-			sched_param sch_params;
-			sch_params.sched_priority = sched_get_priority_max(SCHED_FIFO);
-			pthread_setschedparam(iter->native_handle(), SCHED_FIFO, &sch_params);
-		}
-#elif defined(WIN32) || defined(_WIN32)
-		switch (priority)
-		{
-		case TASK_SCHEDULER_PRIORITY_LOW:
-			SetThreadPriority(iter->native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
-			break;
-		case TASK_SCHEDULER_PRIORITY_NORMAL:
-			SetThreadPriority(iter->native_handle(), THREAD_PRIORITY_NORMAL);
-			break;
-		case TASK_SCHEDULER_PRIORITYO_HIGH:
-			SetThreadPriority(iter->native_handle(), THREAD_PRIORITY_ABOVE_NORMAL);
-			break;
-		case TASK_SCHEDULER_PRIORITY_HIGHEST:
-			SetThreadPriority(iter->native_handle(), THREAD_PRIORITY_HIGHEST);
-			break;
-		case TASK_SCHEDULER_PRIORITY_REALTIME:
-			SetThreadPriority(iter->native_handle(), THREAD_PRIORITY_TIME_CRITICAL);
-			break;
-		}
-#endif
 	}
 }
 

@@ -157,14 +157,11 @@ src/
 ├── effect/    EffectPlugin system (IEffectPlugin, EffectChain, FaceRecognitionPlugin, EffectFactory)
 ├── api/       HTTP REST API (StreamApiServer — session CRUD, effect config, metrics)
 ├── ai/        AI model loading (FaceDetector, FaceRecognizer, FaceDatabase, FrameAnalyzer)
-├── control/   Stream management + scheduling (LEGACY)
 ├── observe/   Observability (MetricsRegistry, LatencyTracer, EventBus)
-└── cdn_sim/   CDN edge simulation
+└── 3rdpart/   Third-party headers (httplib)
 
 example/
-├── ffmpeg_streamer.cpp        ★ Main entry: StreamSession + API server
-├── rtsp_analysis_server.cpp     LEGACY (BUILD_LEGACY_TARGETS=ON)
-└── ...
+└── ffmpeg_streamer.cpp        ★ Main entry: StreamSession + API server
 
 tests/
 ├── test_event_bus.cpp
@@ -269,8 +266,15 @@ The JSON output includes:
 
 ## Roadmap
 
-- **Phase 1**: Architecture correction + EffectPlugin interface + code cleanup
-- **Phase 2**: StreamSession abstraction + HTTP API platformization + dynamic effect config
+**Completed**
+
+- **Phase 1**: In-process FFmpeg pipeline (replacing fork+pipe) + EffectPlugin interface + code cleanup
+- **Phase 2**: StreamServer process-level shared EventLoop + StreamSession abstraction + HTTP API platformization + dynamic effect config
+
+**Planned**
+
+- **EncoderPool**: shared encoder thread pool (performance, next step)
+- **CDN**: edge scheduling over a custom RPC (no gRPC dependency)
 - **Phase 3**: Video summarization + Content Understanding + Agent tool interface
 
 ---

@@ -236,7 +236,6 @@ curl -X DELETE http://localhost:8080/api/faces/Alice
   "width": 640,
   "height": 480,
   "fps": 25,
-  "rtsp_port": 8554,
   "rtsp_suffix": "live",
   "http_port": 8080,
   "bitrate": 2000000,
@@ -251,11 +250,10 @@ curl -X DELETE http://localhost:8080/api/faces/Alice
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `input_url` | string | (必填) | 输入文件路径或摄像头索引 |
+| `input_url` | string | (必填) | 输入 URL（文件路径 / `v4l2:/dev/videoN` / `rtsp://...`） |
 | `width` | int | 640 | 输出宽度 |
 | `height` | int | 480 | 输出高度 |
 | `fps` | int | 25 | 帧率 |
-| `rtsp_port` | int | 8554 | RTSP 端口 |
 | `rtsp_suffix` | string | "live" | RTSP 路径后缀 |
 | `http_port` | int | 8080 | HTTP API 端口 |
 | `bitrate` | int | 2000000 | 编码码率 (bps) |

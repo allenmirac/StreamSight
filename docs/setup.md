@@ -85,9 +85,6 @@ CMake 会自动检测 FFmpeg 和 OpenCV 依赖。若 FFmpeg 开发库未安装�
 ### 构建选项
 
 ```bash
-# 启用旧版目标（rtsp_analysis_server、rtsp_edge_analysis_server）
-cmake .. -DBUILD_LEGACY_TARGETS=ON && make -j$(nproc)
-
 # 启用测试目标（test_smoke 统一测试入口）
 cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 ```
@@ -96,11 +93,6 @@ cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 
 | 目标 | 说明 |
 |------|------|
-| `rtsp_server` | 基础 RTSP 服务器 |
-| `rtsp_pusher` | RTSP 推流工具 |
-| `rtsp_h264_file` | H.264 文件推流 |
-| `rtsp_analysis_server` | [LEGACY] AI 分析服务器（需 BUILD_LEGACY_TARGETS=ON） |
-| `rtsp_edge_analysis_server` | [LEGACY] CDN 边缘调度服务器（需 BUILD_LEGACY_TARGETS=ON） |
 | `ffmpeg_streamer` | ★ 主入口：StreamSession + API server（音视频 + RTMP） |
 | `streamsight-stress` | 压力测试工具（多流并发、性能基线） |
 | `test_event_bus` | EventBus 单元测试 |
@@ -127,38 +119,6 @@ cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 
 # 跳过 AI
 ./build/bin/ffmpeg_streamer --input pic/test.mp4 --no-ai --port 8554
-```
-
-### 模式二：本地视频文件（rtsp_analysis_server，LEGACY）
-
-```bash
-./build/bin/rtsp_analysis_server \
-  --source file \
-  --input test.h264 \
-  --width 640 --height 480 --fps 25 \
-  --port 8554 \
-  --http-port 8080
-```
-
-### 模式三：USB 摄像头（LEGACY）
-
-```bash
-./build/bin/rtsp_analysis_server \
-  --source camera \
-  --device 0 \
-  --width 1280 --height 720 --fps 30 \
-  --port 8554 \
-  --http-port 8080
-```
-
-### 模式四：RTSP 拉流转发（LEGACY）
-
-```bash
-./build/bin/rtsp_analysis_server \
-  --source rtsp \
-  --input rtsp://192.168.1.100:554/stream \
-  --port 8554 \
-  --http-port 8080
 ```
 
 ### 禁用 AI（仅转码推流）
@@ -240,13 +200,12 @@ for line in sys.stdin:
 
 | 选项 | 默认值 | 说明 |
 |------|--------|------|
-| `--source` | `file` | 视频源：`camera` / `file` / `rtsp` |
-| `--device` | `0` | 摄像头设备索引 |
-| `--input` | `test.h264` | 文件路径或 RTSP URL |
+| `--source` | `file` | 输入类型：`file`（文件/URL）或 `camera`（v4l2） |
+| `--input` | `test.h264` | 输入 URL（文件路径 / 摄像头索引 / `rtsp://...`） |
 | `--width` | `640` | 输出宽度（像素） |
 | `--height` | `480` | 输出高度（像素） |
 | `--fps` | `25` | 帧率 |
-| `--port` | `554` | RTSP 端口 |
+| `--port` | `8554` | RTSP 端口 |
 | `--http-port` | `8080` | HTTP API 端口 |
 | `--suffix` | `live` | RTSP 路径后缀 |
 | `--detect-model` | `models/face_detection.onnx` | 检测模型路径 |
@@ -255,11 +214,15 @@ for line in sys.stdin:
 | `--log` | `events.jsonl` | 事件日志路径 |
 | `--analyze-fps` | `5` | AI 分析帧率（降低此值可减少 CPU 占用） |
 | `--no-ai` | — | 禁用 AI，仅编码推流 |
+| `--no-audio` | — | 禁用音频 |
 | `--rtmp` | — | RTMP 推流地址（如 rtmp://localhost:1935/live/stream） |
 | `--bitrate` | `2000000` | 编码码率（bps） |
 | `--threads` | `2` | 编码线程数 |
-| `--reconnect` | `true` | 输入断开时是否自动重连 |
 | `--pipeline-mode` | `serial` | 管线模式：`serial`（单线程）或 `parallel`（3-stage） |
+| `--ringbuf-size` | `4` | RingBuffer 大小（parallel 模式） |
+| `--max-frame-age-ms` | `500` | 帧最大存活时间（背压修剪） |
+| `--time-window-ms` | `0` | 滑动时间窗口宽度（背压修剪） |
+| `--eventloop-threads` | `2` | 进程级 EventLoop 线程数 |
 
 ### 延迟追踪环境变量
 
@@ -286,10 +249,10 @@ sudo apt install libopencv-dev
 
 ```bash
 # 使用非特权端口
-./rtsp_analysis_server --port 8554
+./build/bin/ffmpeg_streamer --input pic/test.mp4 --port 8554
 
 # 或给二进制添加 CAP_NET_BIND_SERVICE
-sudo setcap 'cap_net_bind_service=+eip' ./rtsp_analysis_server
+sudo setcap 'cap_net_bind_service=+eip' ./build/bin/ffmpeg_streamer
 ```
 
 **Q: AI 模型加载失败**

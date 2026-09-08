@@ -155,14 +155,11 @@ src/
 ├── effect/    EffectPlugin 插件体系 (IEffectPlugin, EffectChain, FaceRecognitionPlugin, EffectFactory)
 ├── api/       HTTP REST API (StreamApiServer — session CRUD, 特效配置, 性能指标)
 ├── ai/        AI 模型加载 (FaceDetector, FaceRecognizer, FaceDatabase, FrameAnalyzer)
-├── control/   流管理 + 调度 (LEGACY)
 ├── observe/   可观测性 (MetricsRegistry, LatencyTracer, EventBus)
-└── cdn_sim/   CDN 边缘模拟
+└── 3rdpart/   第三方头文件 (httplib)
 
 example/
-├── ffmpeg_streamer.cpp        ★ 主入口: StreamSession + API server
-├── rtsp_analysis_server.cpp     LEGACY (需要 BUILD_LEGACY_TARGETS=ON)
-└── ...
+└── ffmpeg_streamer.cpp        ★ 主入口: StreamSession + API server
 
 docs/
 ├── architecture.md          系统架构说明
@@ -198,9 +195,16 @@ docs/
 
 ## 开发路线
 
-- **Phase 1** (当前): 定位修正 + EffectPlugin 接口 + 代码债务清理
-- **Phase 2**: StreamSession 抽象 + HTTP API 平台化 + Effect 动态配置
-- **Phase 3**: 视频摘要 + Content Understanding + Agent 工具接口预留
+**已完成**
+
+- **Phase 1**: 进程内 FFmpeg 管线（取代 fork+pipe）+ EffectPlugin 接口 + 代码清理
+- **Phase 2**: StreamServer 进程级共享 EventLoop + StreamSession 抽象 + HTTP API 平台化 + Effect 动态配置
+
+**规划中**
+
+- **EncoderPool**: 共享编码线程池（性能优化，下一步）
+- **CDN**: 基于自研 RPC 的边缘调度（不引入 gRPC）
+- **Phase 3**: 视频摘要 + Content Understanding + Agent 工具接口
 
 ---
 

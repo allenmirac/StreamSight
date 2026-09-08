@@ -2,6 +2,7 @@
 // Unified session abstraction implementation.
 
 #include "StreamSession.h"
+#include "StreamServer.h"
 #include "FFmpegStreamer.h"
 #include "FFmpegUtils.h"
 #include "RtspOutputAdapter.h"
@@ -28,22 +29,18 @@ StreamSession::~StreamSession() {
     Stop();
 }
 
-bool StreamSession::Start() {
+bool StreamSession::Start(StreamServer* server) {
     std::lock_guard<std::mutex> lock(lifecycle_mutex_);
     if (running_) return true;
     if (stopped_) return false;  // single-use, no restart
 
-    // ── RTSP server ─────────────────────────────────────────────────────
-    event_loop_ = std::make_shared<xop::EventLoop>(cfg_.eventloop_threads);
-    rtsp_server_ = xop::RtspServer::Create(event_loop_.get());
-
-    if (!rtsp_server_->Start("0.0.0.0", cfg_.rtsp_port)) {
-        std::cerr << "[StreamSession] RTSP bind failed on port "
-                  << cfg_.rtsp_port << std::endl;
-        rtsp_server_.reset();
-        event_loop_.reset();
+    if (!server || !server->GetRtspServer()) {
+        std::cerr << "[StreamSession] no shared StreamServer available" << std::endl;
         return false;
     }
+
+    rtsp_server_ = server->GetRtspServer();
+    event_loop_  = server->GetEventLoop();
 
     xop::MediaSession* session = xop::MediaSession::CreateNew(cfg_.rtsp_suffix);
     session->AddSource(xop::channel_0, xop::H264Source::CreateNew(cfg_.fps));
@@ -52,6 +49,14 @@ bool StreamSession::Start() {
                            xop::AACSource::CreateNew(44100, 2, true));
     }
     session_id_ = rtsp_server_->AddSession(session);
+    if (session_id_ == 0) {
+        std::cerr << "[StreamSession] duplicate RTSP suffix: /" << cfg_.rtsp_suffix
+                  << std::endl;
+        delete session;  // AddSession did not take ownership on duplicate
+        rtsp_server_ = nullptr;
+        event_loop_  = nullptr;
+        return false;
+    }
 
     // ── Client-aware pipeline gating: register lifecycle callbacks ─────
     session->AddNotifyConnectedCallback(
@@ -59,7 +64,7 @@ bool StreamSession::Start() {
     session->AddNotifyDisconnectedCallback(
         [this](xop::MediaSessionId, std::string, uint16_t) { OnClientDisconnected(); });
 
-    std::cout << "[StreamSession] RTSP: rtsp://localhost:" << cfg_.rtsp_port
+    std::cout << "[StreamSession] RTSP: rtsp://localhost:" << rtsp_server_->GetPort()
               << "/" << cfg_.rtsp_suffix << std::endl;
 
     // ── EffectChain (from JSON or default FaceRecognition) ──────────────
@@ -87,7 +92,7 @@ bool StreamSession::Start() {
 
     // ── Output adapters ─────────────────────────────────────────────────
     rtsp_out_ = std::make_shared<RtspOutputAdapter>(
-        rtsp_server_.get(), session_id_, (int)xop::channel_0);
+        rtsp_server_, session_id_, (int)xop::channel_0);
 
     if (!cfg_.rtmp_url.empty()) {
         rtmp_out_ = std::make_shared<RtmpOutputAdapter>(cfg_.rtmp_url);
@@ -111,24 +116,29 @@ bool StreamSession::Start() {
 
 void StreamSession::Stop() {
     std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-    if (!running_) {
-        // Thread may have finished on its own (e.g. video EOF) — still join
-        if (run_thread_.joinable()) {
-            run_thread_.join();
-        }
-        return;
+    if (running_) {
+        stop_ = true;
+        running_ = false;
+        // Wake pipeline thread from WaitForClients() so it can check stop_ and exit
+        client_cv_.notify_all();
     }
-    stop_ = true;
-    running_ = false;
 
-    // Wake pipeline thread from WaitForClients() so it can check stop_ and exit
-    client_cv_.notify_all();
-
+    // Join the run thread whether it is still running or finished naturally.
     if (run_thread_.joinable()) {
         run_thread_.join();
     }
 
-    pipeline_mgr_.StopAll();
+    {
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = std::move(pipeline_); }
+        if (p) p->Stop();
+    }
+    if (rtsp_server_ && session_id_ != 0) {
+        rtsp_server_->RemoveSession(session_id_);
+    }
+    session_id_  = 0;
+    rtsp_server_ = nullptr;
+    event_loop_  = nullptr;
     if (face_plugin_) face_plugin_->Close();
     effect_chain_.Clear();
     stopped_ = true;
@@ -139,7 +149,9 @@ SessionStatus StreamSession::GetStatus() const {
     s.running = running_;
     s.frames_processed = frame_count_;
     if (cfg_.pipeline_mode == "parallel") {
-        s.frames_processed = pipeline_mgr_.GetStats(cfg_.rtsp_suffix).frames_decoded;
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = pipeline_; }
+        if (p) s.frames_processed = p->FramesDecoded();
     }
     int64_t st = start_time_.load();
     if (st > 0) {
@@ -147,20 +159,23 @@ SessionStatus StreamSession::GetStatus() const {
             std::chrono::system_clock::now().time_since_epoch()).count();
         s.uptime_seconds = now - st;
     }
-    s.rtsp_port = cfg_.rtsp_port;
+    s.rtsp_port = rtsp_server_ ? rtsp_server_->GetPort() : 0;
     s.http_port = cfg_.http_port;
     s.stream_id = cfg_.rtsp_suffix;
 
     // Stress testing metrics (parallel mode only)
     if (cfg_.pipeline_mode == "parallel") {
-        auto stats = pipeline_mgr_.GetStats(cfg_.rtsp_suffix);
-        s.frames_dropped   = stats.frames_dropped_demux + stats.frames_dropped_ai;
-        s.frames_pruned    = stats.frames_pruned_demux + stats.frames_pruned_ai;
-        s.decode_ring_fill   = stats.decode_ring_fill;
-        s.process_ring_fill  = stats.process_ring_fill;
-        s.max_decode_ring_fill  = stats.max_decode_ring_fill;
-        s.max_process_ring_fill = stats.max_process_ring_fill;
-        s.backpressure_events   = stats.backpressure_events;
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = pipeline_; }
+        if (p) {
+            s.frames_dropped   = p->FramesDroppedDemux() + p->FramesDroppedAI();
+            s.frames_pruned    = p->FramesPrunedDemux() + p->FramesPrunedAI();
+            s.decode_ring_fill   = p->DecodeRingFill();
+            s.process_ring_fill  = p->ProcessRingFill();
+            s.max_decode_ring_fill  = p->MaxDecodeRingFill();
+            s.max_process_ring_fill = p->MaxProcessRingFill();
+            s.backpressure_events   = p->BackpressureEvents();
+        }
     }
 
     // Event loop performance
@@ -193,7 +208,7 @@ std::vector<std::string> StreamSession::GetEffectNames() const {
 }
 
 void* StreamSession::GetRtspServer() const {
-    return rtsp_server_.get();
+    return rtsp_server_;
 }
 
 uint32_t StreamSession::GetSessionId() const {
@@ -244,7 +259,7 @@ void StreamSession::RunSerial() {
 
             event_bus_.Publish(FrameProcessedEvent{
                 cfg_.rtsp_suffix,
-                static_cast<int64_t>(frame_count_++),
+                f.frame_index,
                 static_cast<int64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()
@@ -268,7 +283,9 @@ void StreamSession::RunSerial() {
     }
 
     while (!stop_) {
-        WaitForClients();  // blocks until RTSP client connects
+        if (cfg_.enable_client_gating) {
+            WaitForClients();  // blocks until RTSP client connects
+        }
         if (stop_) break;
 
         if (!streamer.IsOpened()) break;
@@ -287,7 +304,9 @@ void StreamSession::RunSerial() {
             for (int i = 0; i < cfg_.max_reconnect && !stop_; ++i) {
                 std::this_thread::sleep_for(
                     std::chrono::milliseconds(cfg_.reconnect_delay_ms));
-                WaitForClients();  // check stop_ flag
+                if (cfg_.enable_client_gating) {
+                    WaitForClients();  // check stop_ flag
+                }
                 if (stop_) break;
                 if (streamer.Open()) {
                     reconnected = true;
@@ -306,6 +325,8 @@ void StreamSession::RunSerial() {
             }
             continue;
         }
+
+        ++frame_count_;
     }
 
     streamer.Close();
@@ -335,7 +356,7 @@ void StreamSession::RunParallel() {
         pcfg.client_cv   = &client_cv_;
         pcfg.client_mutex = &client_mutex_;
     }
-    pcfg.audio_rtsp_server  = rtsp_server_.get();
+    pcfg.audio_rtsp_server  = rtsp_server_;
     pcfg.audio_session_id   = session_id_;
     pcfg.audio_channel      = (int)xop::channel_1;
 
@@ -351,13 +372,26 @@ void StreamSession::RunParallel() {
     pcfg.outputs.push_back(rtsp_out_);
     if (rtmp_out_) pcfg.outputs.push_back(rtmp_out_);
 
-    pipeline_mgr_.AddStream(cfg_.rtsp_suffix, pcfg);
+    auto pipeline = std::make_shared<StreamPipeline>(cfg_.rtsp_suffix, pcfg);
+    if (!pipeline->Start()) {
+        std::cerr << "[StreamSession] pipeline start failed" << std::endl;
+        running_ = false;
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(pipeline_mutex_);
+        pipeline_ = std::move(pipeline);
+    }
 
     while (!stop_) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
-    pipeline_mgr_.StopAll();
+    {
+        std::shared_ptr<StreamPipeline> p;
+        { std::lock_guard<std::mutex> lk(pipeline_mutex_); p = std::move(pipeline_); }
+        if (p) p->Stop();
+    }
     running_ = false;
 }
 

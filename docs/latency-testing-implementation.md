@@ -1,36 +1,18 @@
 # StreamSight 延迟测试实现文档
 
-## 1. 新增文件
+## 1. 实现逻辑
 
-| 文件 | 说明 |
-|------|------|
-| `src/observe/LatencyTracer.h` | 延迟追踪单例、LatencyScope RAII、便捷宏 |
-| `src/observe/LatencyTracer.cpp` | 实现：JSONL 写入、环形缓冲区、统计聚合、后台写入线程 |
-| `scripts/analyze_latency.py` | Python 分析脚本，计算 avg/p50/p95/p99/max/jitter |
-| `scripts/run_latency_baseline.sh` | 一键基线测试脚本 |
-| `docs/latency-testing-implementation.md` | 本文件 |
+增加observe观测层的实现，设计为单例模式，并且使用RAII语义自动实现计时，将这套计时通过埋点加入到 pipeline、ai 等位置。通过这些埋点，将通过后台线程写入日志中去，最后使用脚本来实现一键测试。
 
-## 2. 修改文件
+## 2. 埋点 stage 说明
 
-| 文件 | 改动 |
-|------|------|
-| `CMakeLists.txt` | OBSERVE_SRCS 添加 LatencyTracer.cpp |
-| `Makefile` | 添加 src/observe/ 编译规则，TARGET4 链接 observe 对象 |
-| `src/ai/FrameAnalyzer.cpp` | 添加 frame_analyze_total 埋点 |
-| `src/ai/FaceDetector.cpp` | 添加 face_detection 埋点 |
-| `src/ai/FaceRecognizer.cpp` | 添加 face_recognition 埋点 |
-| `src/ai/FaceDatabase.cpp` | 添加 face_database_search 埋点 |
-| `src/ai/FrameOverlay.cpp` | 添加 frame_overlay 埋点 |
-| `src/ai/H264Encoder.cpp` | 添加 h264_encode 埋点 |
-| `src/ai/FileSource.cpp` | 添加 capture_frame 埋点 |
-| `src/ai/CameraSource.cpp` | 添加 capture_frame 埋点 |
-| `src/ai/RtspPullSource.cpp` | 添加 rtsp_pull_receive 埋点 |
-| `src/ai/HttpApiServer.cpp` | 添加 3 个延迟查询 API + handler 耗时埋点 |
-| `src/xop/RtpConnection.cpp` | 添加 rtp_send 埋点 |
-| `src/control/Scheduler.cpp` | 添加 scheduler_select 埋点 |
-| `src/control/PipelineRunner.cpp` | 添加 pipeline_run 埋点 |
-| `src/control/StreamManager.cpp` | 添加 stream_manager_dispatch 埋点 |
-| `src/cdn_sim/EdgeNode.cpp` | 添加 edge_node_enqueue 埋点 |
+实际埋点 stage（宏 `STREAMSIGHT_LATENCY_SCOPE(mod, stg)`）：
+
+- `ai.*`：`capture_frame` / `face_detection` / `face_recognition` / `face_database_search` / `frame_overlay` / `frame_analyze_total` / `h264_encode` / `rtsp_pull_receive`
+- `xop.rtp_send`：RTP 发送
+- `http.http_request_total`：HTTP 请求
+
+> 注意：`ai.frame_analyze_total` / `ai.h264_encode` / `ai.rtsp_pull_receive` 属于 legacy `ai::` 路径（`FrameAnalyzer`/`H264Encoder`/`RtspPullSource`），在当前的进程内 FFmpeg 管线（`StreamPipeline`/`FFmpegStreamer`）中**不会触发**。serial 模式缺少 `pipeline.*` 解码/编码埋点，当前实际生效的是 `ai.*` + `xop.rtp_send`。
 
 ## 3. 如何开启延迟测试
 
@@ -41,7 +23,7 @@ export STREAMSIGHT_LATENCY_ENABLE=1
 export STREAMSIGHT_LATENCY_LOG=runtime/latency_events.jsonl
 export STREAMSIGHT_LATENCY_BUFFER_SIZE=10000
 
-./bin/rtsp_analysis_server --source file --input pic/test.h264 --port 8554 --http-port 8080 --no-ai
+./build/bin/ffmpeg_streamer --input pic/test.h264 --port 8554 --http-port 8080 --no-ai
 ```
 
 不设置环境变量时，所有埋点宏展开为空，零性能开销。
@@ -71,7 +53,7 @@ export STREAMSIGHT_LATENCY_ENABLE=1
 export STREAMSIGHT_LATENCY_LOG=runtime/latency_events.jsonl
 
 # 3. 启动服务（无 AI 模式）
-./bin/rtsp_analysis_server --source file --input pic/test.h264 \
+./build/bin/ffmpeg_streamer --input pic/test.h264 \
     --port 8554 --http-port 8080 --no-ai --suffix live &
 
 # 4. 等待几秒，拉流测试
@@ -89,7 +71,7 @@ python3 scripts/analyze_latency.py runtime/latency_events.jsonl
 export STREAMSIGHT_LATENCY_ENABLE=1
 export STREAMSIGHT_LATENCY_LOG=runtime/latency_events.jsonl
 
-./bin/rtsp_analysis_server --source file --input pic/test.h264 \
+./build/bin/ffmpeg_streamer --input pic/test.h264 \
     --port 8554 --http-port 8080 --analyze-fps 5 --suffix live
 ```
 
@@ -152,7 +134,7 @@ ai.h264_encode                         150      8.600     7.900    10.200    12.
 | `trace_id` | string | 追踪 ID |
 | `stream_id` | string | 流 ID |
 | `frame_id` | int64 | 帧序号 |
-| `module` | string | 模块名（ai/xop/control/cdn_sim/http） |
+| `module` | string | 模块名（ai/xop/http） |
 | `stage` | string | 阶段名（face_detection/h264_encode/...） |
 | `event` | string | 事件类型（"scope" 或 "mark"） |
 | `start_us` | int64 | 开始时间（微秒，steady_clock） |
@@ -173,7 +155,7 @@ ai.h264_encode                         150      8.600     7.900    10.200    12.
 - 确认 CMakeLists.txt 或 Makefile 已包含 `src/observe/LatencyTracer.cpp`
 
 ### 没有 HTTP 接口数据
-- 确认 HttpApiServer 已启动（设置了 `--http-port` 参数）
+- 确认 StreamApiServer 已启动（设置了 `--http-port` 参数）
 - 确认延迟追踪已开启（环境变量）
 
 ### 日志过大

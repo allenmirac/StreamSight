@@ -43,6 +43,15 @@ public:
     std::vector<float> Extract(const cv::Mat& face);
 
     /**
+     * @brief Extract embeddings for many face crops in one batched forward
+     *        pass (substantially cheaper than one forward pass per face).
+     * @param faces  BGR face crops (any sizes; each resized to 112×112).
+     * @return One 512-D embedding per input, in input order; empty entries
+     *         mark empty/failed inputs.
+     */
+    std::vector<std::vector<float>> ExtractBatch(const std::vector<cv::Mat>& faces);
+
+    /**
      * @brief Cosine similarity between two L2-normalized embeddings.
      * @return Similarity in [-1, 1]; typically 0.3–0.5 is same person.
      */

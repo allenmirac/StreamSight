@@ -27,6 +27,10 @@ class FaceDatabase;
 class FaceRecognizer;
 }
 
+namespace ffmpeg {
+class StreamServer;
+}
+
 namespace api {
 
 class StreamApiServer {
@@ -34,7 +38,8 @@ public:
     StreamApiServer(int port,
                     ai::FaceDatabase*   db = nullptr,
                     ai::FaceRecognizer* recog = nullptr,
-                    int max_events = 1000);
+                    int max_events = 1000,
+                    ffmpeg::StreamServer* rtsp_server = nullptr);
     ~StreamApiServer();
 
     // Non-copyable
@@ -67,6 +72,7 @@ private:
     ai::FaceDatabase*   database_;
     ai::FaceRecognizer* recognizer_;
     int  max_events_;
+    ffmpeg::StreamServer* rtsp_server_ = nullptr;
     bool running_ = false;
     std::thread server_thread_;
 

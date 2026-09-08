@@ -55,41 +55,60 @@ AnalysisResult FrameAnalyzer::RunAnalysis(const cv::Mat& frame) {
     // Detection
     std::vector<FaceBox> boxes = detector_->Detect(frame);
 
-    for (const auto& fb : boxes) {
-        FaceResult fr;
-        fr.box        = fb.rect;
-        fr.confidence = fb.confidence;
-        fr.name       = "unknown";
-        fr.similarity = 0.0f;
-        fr.recognized = false;
+    // Build per-face results with default (unrecognized) values.
+    std::vector<FaceResult> faces(boxes.size());
+    for (size_t i = 0; i < boxes.size(); ++i) {
+        faces[i].box        = boxes[i].rect;
+        faces[i].confidence = boxes[i].confidence;
+        faces[i].name       = "unknown";
+        faces[i].similarity = 0.0f;
+        faces[i].recognized = false;
+    }
 
-        // Recognition (if enabled)
-        if (recognizer_ && database_) {
-            // Expand rect slightly to include forehead/chin
-            cv::Rect expanded = fb.rect;
-            int pad_x = (int)(fb.rect.width  * 0.1f);
-            int pad_y = (int)(fb.rect.height * 0.15f);
-            expanded.x -= pad_x; expanded.y -= pad_y;
+    // Batch recognition: collect every face crop and run a single forward
+    // pass over all of them, instead of one forward pass per face (the
+    // per-face cost dominates the frame budget at ~64 faces/frame).
+    if (recognizer_ && database_) {
+        std::vector<cv::Mat> crops;
+        std::vector<size_t>  crop_to_face;  // crops[i] -> faces[crop_to_face[i]]
+        crops.reserve(boxes.size());
+        crop_to_face.reserve(boxes.size());
+
+        for (size_t i = 0; i < boxes.size(); ++i) {
+            const cv::Rect2f& rect = boxes[i].rect;
+            // Expand slightly to include forehead/chin
+            cv::Rect expanded((int)rect.x, (int)rect.y,
+                              (int)rect.width, (int)rect.height);
+            int pad_x = (int)(rect.width  * 0.1f);
+            int pad_y = (int)(rect.height * 0.15f);
+            expanded.x -= pad_x;
+            expanded.y -= pad_y;
             expanded.width  += 2 * pad_x;
             expanded.height += 2 * pad_y;
 
             // Clamp to image bounds
             expanded &= cv::Rect(0, 0, frame.cols, frame.rows);
             if (expanded.width > 0 && expanded.height > 0) {
-                cv::Mat crop = frame(expanded);
-                std::vector<float> emb = recognizer_->Extract(crop);
-                if (!emb.empty()) {
-                    FaceMatch match = database_->Query(emb);
-                    fr.name       = match.name;
-                    fr.similarity = match.similarity;
-                    fr.recognized = match.matched;
-                }
+                crops.push_back(frame(expanded));
+                crop_to_face.push_back(i);
             }
         }
 
-        result.faces.push_back(fr);
+        if (!crops.empty()) {
+            std::vector<std::vector<float>> embeddings =
+                recognizer_->ExtractBatch(crops);
+            for (size_t j = 0; j < crop_to_face.size() && j < embeddings.size(); ++j) {
+                if (embeddings[j].empty()) continue;
+                FaceMatch match = database_->Query(embeddings[j]);
+                size_t face_idx = crop_to_face[j];
+                faces[face_idx].name       = match.name;
+                faces[face_idx].similarity = match.similarity;
+                faces[face_idx].recognized = match.matched;
+            }
+        }
     }
 
+    result.faces = std::move(faces);
     return result;
 }
 

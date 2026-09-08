@@ -25,7 +25,6 @@ int run_stream_session_tests() {
     {
         ffmpeg::StreamSessionConfig cfg;
         cfg.input_url = "test.mp4";
-        cfg.rtsp_port = 9999;
         cfg.http_port = 8888;
         cfg.enable_ai = false;
         ffmpeg::StreamSession session(cfg);
@@ -69,10 +68,10 @@ int run_stream_session_tests() {
     {
         ffmpeg::StreamSessionConfig cfg;
         cfg.input_url = "rtsp://example.com/stream";
-        cfg.rtsp_port = 5554;
+        cfg.rtsp_suffix = "stream1";
         ffmpeg::StreamSession session(cfg);
         CHECK(session.Config().input_url == "rtsp://example.com/stream");
-        CHECK(session.Config().rtsp_port == 5554);
+        CHECK(session.Config().rtsp_suffix == "stream1");
     }
 
     // Test 6: GetRtspServer returns nullptr before Start

@@ -23,6 +23,7 @@
 
 - 事件驱动管线按 RTSP 客户端存在与否动态启停，降低空载开销。
 - 线程模型优化与管线健壮性增强。
+- 架构收敛：`StreamSession` 直接持有 `StreamPipeline`（移除中间 `PipelineManager`），`StreamApiServer` 成为唯一多流注册表。
 
 ### Fixed
 
@@ -32,3 +33,5 @@
 ### Removed
 
 - 移除 fork+pipe 子进程编码方案，改为 FFmpeg C API 进程内管线。
+- 移除 LEGACY 控制调度层（`src/control/`）与 CDN 边缘模拟层（`src/cdn_sim/`）及对应 legacy 示例（`rtsp_analysis_server`、`rtsp_edge_analysis_server`）。
+- 移除 `PipelineManager`，多流注册表全项目仅保留 `StreamApiServer` 一份。

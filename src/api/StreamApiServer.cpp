@@ -186,11 +186,13 @@ std::string StreamApiServer::SessionStatusToJson(const ffmpeg::SessionStatus& s)
 
 // ─── Constructor / Destructor ─────────────────────────────────────────────────
 StreamApiServer::StreamApiServer(int port, ai::FaceDatabase* db,
-                                 ai::FaceRecognizer* recog, int max_events)
+                                 ai::FaceRecognizer* recog, int max_events,
+                                 ffmpeg::StreamServer* rtsp_server)
     : port_(port)
     , database_(db)
     , recognizer_(recog)
     , max_events_(max_events)
+    , rtsp_server_(rtsp_server)
     , impl_(new Impl())
 {
     start_time_ = ::time(nullptr);
@@ -441,14 +443,12 @@ bool StreamApiServer::Start() {
             cfg.width = JsonGetInt(body, "width", 640);
             cfg.height = JsonGetInt(body, "height", 480);
             cfg.fps = JsonGetInt(body, "fps", 25);
-            cfg.rtsp_port = JsonGetInt(body, "rtsp_port", 8554);
             cfg.http_port = JsonGetInt(body, "http_port", 8080);
             cfg.bitrate = JsonGetInt(body, "bitrate", 2000000);
             cfg.enc_threads = JsonGetInt(body, "enc_threads", 2);
             cfg.ringbuf_size = JsonGetInt(body, "ringbuf_size", 4);
             cfg.max_frame_age_ms = JsonGetInt(body, "max_frame_age_ms", 500);
             cfg.time_window_ms = JsonGetInt(body, "time_window_ms", 0);
-            cfg.eventloop_threads = JsonGetInt(body, "eventloop_threads", 2);
             cfg.analyze_fps = JsonGetInt(body, "analyze_fps", 5);
 
             cfg.enable_ai = JsonGetBool(body, "enable_ai", true);
@@ -551,6 +551,9 @@ std::string StreamApiServer::CreateSession(const ffmpeg::StreamSessionConfig& cf
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "sess_" + std::to_string(next_id_++);
     auto session = std::make_shared<ffmpeg::StreamSession>(cfg);
+    if (rtsp_server_) {
+        session->Start(rtsp_server_);
+    }
     SessionEntry entry;
     entry.id = id;
     entry.session = session;
