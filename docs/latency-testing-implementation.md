@@ -4,6 +4,16 @@
 
 增加observe观测层的实现，设计为单例模式，并且使用RAII语义自动实现计时，将这套计时通过埋点加入到 pipeline、ai 等位置。通过这些埋点，将通过后台线程写入日志中去，最后使用脚本来实现一键测试。
 
+## 2. 埋点 stage 说明
+
+实际埋点 stage（宏 `STREAMSIGHT_LATENCY_SCOPE(mod, stg)`）：
+
+- `ai.*`：`capture_frame` / `face_detection` / `face_recognition` / `face_database_search` / `frame_overlay` / `frame_analyze_total` / `h264_encode` / `rtsp_pull_receive`
+- `xop.rtp_send`：RTP 发送
+- `http.http_request_total`：HTTP 请求
+
+> 注意：`ai.frame_analyze_total` / `ai.h264_encode` / `ai.rtsp_pull_receive` 属于 legacy `ai::` 路径（`FrameAnalyzer`/`H264Encoder`/`RtspPullSource`），在当前的进程内 FFmpeg 管线（`StreamPipeline`/`FFmpegStreamer`）中**不会触发**。serial 模式缺少 `pipeline.*` 解码/编码埋点，当前实际生效的是 `ai.*` + `xop.rtp_send`。
+
 ## 3. 如何开启延迟测试
 
 设置环境变量后启动程序：

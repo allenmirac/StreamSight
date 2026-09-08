@@ -140,6 +140,8 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 ### 4.3 AI 智能分析模块（src/ai）
 
+> 注：本模块中 `FaceDetector/FaceRecognizer/FaceDatabase/FrameOverlay/EventLogger` 仍被 `FaceRecognitionPlugin` 使用；`VideoSource/CameraSource/FileSource/RtspPullSource/H264Encoder/HttpApiServer` 已无外部引用，属于待清理的死代码。
+
 该模块实现了从视频源接入到 AI 分析再到编码输出的完整数据处理管线。
 
 **视频源接入**
@@ -352,7 +354,9 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 8. **Docker 化部署**：编写 Dockerfile 和 docker-compose，实现一键构建和运行，降低环境搭建成本。
 9. **CI/CD 构建流程完善**：接入 GitHub Actions 或 Jenkins，实现自动化编译、测试和发布。
 10. **录制与多协议输出**：当前支持 RTSP 和 RTMP 输出，可扩展 MP4 录制和 HLS 切片输出能力。
-11. **Content Understanding 集成**：Phase 3 规划中，接入视频摘要、场景理解等更高级的 AI 能力。
+11. **EncoderPool 共享编码线程池**：见 `docs/superpowers/specs/2026-09-07-performance-optimization-encoderpool-cdn.md`，服务 8 路 P99<300ms 目标。
+12. **CDN 边缘调度（自研 RPC）**：同 spec，基于 `src/net/` 自研 RPC，不引入 gRPC。
+13. **Content Understanding 集成**：Phase 3 规划中，接入视频摘要、场景理解等更高级的 AI 能力。
 
 ---
 

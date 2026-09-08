@@ -200,13 +200,12 @@ for line in sys.stdin:
 
 | 选项 | 默认值 | 说明 |
 |------|--------|------|
-| `--source` | `file` | 视频源：`camera` / `file` / `rtsp` |
-| `--device` | `0` | 摄像头设备索引 |
-| `--input` | `test.h264` | 文件路径或 RTSP URL |
+| `--source` | `file` | 输入类型：`file`（文件/URL）或 `camera`（v4l2） |
+| `--input` | `test.h264` | 输入 URL（文件路径 / 摄像头索引 / `rtsp://...`） |
 | `--width` | `640` | 输出宽度（像素） |
 | `--height` | `480` | 输出高度（像素） |
 | `--fps` | `25` | 帧率 |
-| `--port` | `554` | RTSP 端口 |
+| `--port` | `8554` | RTSP 端口 |
 | `--http-port` | `8080` | HTTP API 端口 |
 | `--suffix` | `live` | RTSP 路径后缀 |
 | `--detect-model` | `models/face_detection.onnx` | 检测模型路径 |
@@ -215,11 +214,15 @@ for line in sys.stdin:
 | `--log` | `events.jsonl` | 事件日志路径 |
 | `--analyze-fps` | `5` | AI 分析帧率（降低此值可减少 CPU 占用） |
 | `--no-ai` | — | 禁用 AI，仅编码推流 |
+| `--no-audio` | — | 禁用音频 |
 | `--rtmp` | — | RTMP 推流地址（如 rtmp://localhost:1935/live/stream） |
 | `--bitrate` | `2000000` | 编码码率（bps） |
 | `--threads` | `2` | 编码线程数 |
-| `--reconnect` | `true` | 输入断开时是否自动重连 |
 | `--pipeline-mode` | `serial` | 管线模式：`serial`（单线程）或 `parallel`（3-stage） |
+| `--ringbuf-size` | `4` | RingBuffer 大小（parallel 模式） |
+| `--max-frame-age-ms` | `500` | 帧最大存活时间（背压修剪） |
+| `--time-window-ms` | `0` | 滑动时间窗口宽度（背压修剪） |
+| `--eventloop-threads` | `2` | 进程级 EventLoop 线程数 |
 
 ### 延迟追踪环境变量
 

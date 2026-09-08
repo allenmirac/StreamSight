@@ -266,8 +266,15 @@ The JSON output includes:
 
 ## Roadmap
 
-- **Phase 1**: Architecture correction + EffectPlugin interface + code cleanup
-- **Phase 2**: StreamSession abstraction + HTTP API platformization + dynamic effect config
+**Completed**
+
+- **Phase 1**: In-process FFmpeg pipeline (replacing fork+pipe) + EffectPlugin interface + code cleanup
+- **Phase 2**: StreamServer process-level shared EventLoop + StreamSession abstraction + HTTP API platformization + dynamic effect config
+
+**Planned**
+
+- **EncoderPool**: shared encoder thread pool (performance, next step)
+- **CDN**: edge scheduling over a custom RPC (no gRPC dependency)
 - **Phase 3**: Video summarization + Content Understanding + Agent tool interface
 
 ---
