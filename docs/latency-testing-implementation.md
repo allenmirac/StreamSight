@@ -1,0 +1,172 @@
+# StreamSight 延迟测试实现文档
+
+## 1. 实现逻辑
+
+增加observe观测层的实现，设计为单例模式，并且使用RAII语义自动实现计时，将这套计时通过埋点加入到 pipeline、ai 等位置。通过这些埋点，将通过后台线程写入日志中去，最后使用脚本来实现一键测试。
+
+## 2. 埋点 stage 说明
+
+实际埋点 stage（宏 `STREAMSIGHT_LATENCY_SCOPE(mod, stg)`）：
+
+- `ai.*`：`face_detection` / `face_recognition` / `face_database_search` / `frame_overlay` / `frame_analyze_total`
+- `rtsp.rtp_send`：RTP 发送
+- `http.http_request_total`：HTTP 请求
+
+> 注意：`ai.*` 埋点由 `FaceRecognitionPlugin::Process` → `FrameAnalyzer::Analyze`（`src/effect/FaceRecognitionPlugin.cpp`）驱动，**仅在启用 AI 效果时触发**。serial 模式缺少 `pipeline.*` 解码/编码埋点，当前实际生效的是 `ai.*` + `rtsp.rtp_send`，且 `rtsp.rtp_send` 只在有真实 RTSP 客户端拉流时触发。
+>
+> 此外 `ai.capture_frame` / `ai.h264_encode` / `ai.rtsp_pull_receive` 三个埋点随 legacy `ai::` 路径（`CameraSource`/`FileSource`/`H264Encoder`/`RtspPullSource`）于 2026-09-18 一并移除，不会再出现在日志中。
+
+## 3. 如何开启延迟测试
+
+设置环境变量后启动程序：
+
+```bash
+export STREAMSIGHT_LATENCY_ENABLE=1
+export STREAMSIGHT_LATENCY_LOG=runtime/latency_events.jsonl
+export STREAMSIGHT_LATENCY_BUFFER_SIZE=10000
+
+./build/bin/streamsight --input pic/test.h264 --port 8554 --http-port 8080 --no-ai
+```
+
+不设置环境变量时，所有埋点宏展开为空，零性能开销。
+
+## 4. 环境变量说明
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `STREAMSIGHT_LATENCY_ENABLE` | (空) | 设置为 `1` 或 `true` 开启延迟追踪 |
+| `STREAMSIGHT_LATENCY_LOG` | `runtime/latency_events.jsonl` | JSONL 日志输出路径 |
+| `STREAMSIGHT_LATENCY_BUFFER_SIZE` | `10000` | 内存环形缓冲区大小（条数） |
+
+## 5. 运行延迟基线测试
+
+**方式一：一键脚本**
+```bash
+bash scripts/run_latency_baseline.sh
+```
+
+**方式二：手动运行**
+```bash
+# 1. 创建运行时目录
+mkdir -p runtime
+
+# 2. 设置环境变量
+export STREAMSIGHT_LATENCY_ENABLE=1
+export STREAMSIGHT_LATENCY_LOG=runtime/latency_events.jsonl
+
+# 3. 启动服务（无 AI 模式）
+./build/bin/streamsight --input pic/test.h264 \
+    --port 8554 --http-port 8080 --no-ai --suffix live &
+
+# 4. 等待几秒，拉流测试
+ffplay -fflags nobuffer -flags low_delay -framedrop rtsp://127.0.0.1:8554/live
+
+# 5. Ctrl+C 停止服务
+
+# 6. 分析日志
+python3 scripts/analyze_latency.py runtime/latency_events.jsonl
+```
+
+## 6. 运行 AI 分析延迟测试
+
+```bash
+export STREAMSIGHT_LATENCY_ENABLE=1
+export STREAMSIGHT_LATENCY_LOG=runtime/latency_events.jsonl
+
+./build/bin/streamsight --input pic/test.h264 \
+    --port 8554 --http-port 8080 --analyze-fps 5 --suffix live
+```
+
+停止后分析各模块耗时占比：
+```bash
+python3 scripts/analyze_latency.py runtime/latency_events.jsonl
+```
+
+## 7. HTTP 延迟查询接口
+
+服务运行时可通过以下接口查询延迟数据：
+
+```bash
+# 查看模块级统计（avg/p50/p95/p99/max）
+curl -s http://localhost:8080/api/latency/stats | python3 -m json.tool
+
+# 查看最近 N 条事件
+curl -s "http://localhost:8080/api/latency/recent?limit=10" | python3 -m json.tool
+
+# 重置内存统计数据（不删除磁盘日志）
+curl -X POST http://localhost:8080/api/latency/reset
+```
+
+## 8. analyze_latency.py 使用说明
+
+```bash
+# 基本用法
+python3 scripts/analyze_latency.py runtime/latency_events.jsonl
+
+# 只看 face_detection
+python3 scripts/analyze_latency.py runtime/latency_events.jsonl --stage ai.face_detection
+
+# Top 5 耗时模块
+python3 scripts/analyze_latency.py runtime/latency_events.jsonl --top 5
+
+# JSON 输出
+python3 scripts/analyze_latency.py runtime/latency_events.jsonl --json
+
+# CSV 输出
+python3 scripts/analyze_latency.py runtime/latency_events.jsonl --csv
+```
+
+输出示例：
+```
+Stage                                Count   Avg(ms)       P50       P90       P95       P99       Max    Jitter    Share%
+ai.frame_analyze_total                 150     45.200    42.100    58.300    62.500    68.100    72.300     5.200    45.0%
+ai.face_detection                      150     18.700    17.500    22.100    25.300    28.900    32.100     2.100    18.6%
+ai.face_recognition                    150     12.400    11.800    15.200    17.100    19.500    21.000     1.500    12.3%
+ai.face_database_search                 150      8.600     7.900    10.200    12.100    14.300    16.500     1.200     8.6%
+...
+```
+
+## 9. JSONL 字段说明
+
+每行一个 JSON 对象：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `timestamp_ms` | int64 | Unix 毫秒时间戳 |
+| `trace_id` | string | 追踪 ID |
+| `stream_id` | string | 流 ID |
+| `frame_id` | int64 | 帧序号 |
+| `module` | string | 模块名（ai/rtsp/http） |
+| `stage` | string | 阶段名（face_detection/face_analyze_total/...） |
+| `event` | string | 事件类型（"scope" 或 "mark"） |
+| `start_us` | int64 | 开始时间（微秒，steady_clock） |
+| `end_us` | int64 | 结束时间（微秒） |
+| `duration_us` | int64 | 耗时（微秒） |
+| `thread_id` | string | 线程 ID |
+| `extra` | string | 额外 JSON 片段（可选） |
+
+## 10. 常见问题
+
+### 日志没有生成
+- 确认设置了 `STREAMSIGHT_LATENCY_ENABLE=1`
+- 检查 `runtime/` 目录是否有写权限
+- 查看 stderr 是否有 `[LatencyTracer] Cannot open log` 错误
+
+### 编译失败
+- 确保使用 GCC 7+ 或 Clang 5+（C++17）
+- 确认 CMakeLists.txt 或 Makefile 已包含 `src/observe/LatencyTracer.cpp`
+
+### 没有 HTTP 接口数据
+- 确认 StreamApiServer 已启动（设置了 `--http-port` 参数）
+- 确认延迟追踪已开启（环境变量）
+
+### 日志过大
+- 设置 `STREAMSIGHT_LATENCY_BUFFER_SIZE=1000` 减小内存占用
+- 日志文件本身可在测试后删除或归档
+- 建议每次测试前清理：`rm -f runtime/latency_events.jsonl`
+
+### 埋点影响性能
+- 不设置环境变量时零开销（宏展开为空）
+- 开启后每次 scope 约 2~5 微秒开销（原子操作 + 时间戳获取）
+- 在 25fps 下每帧 10 个 scope，总开销约 0.05ms，影响可忽略
+- 如果仍需降低开销，可增大 `STREAMSIGHT_LATENCY_BUFFER_SIZE` 减少锁竞争

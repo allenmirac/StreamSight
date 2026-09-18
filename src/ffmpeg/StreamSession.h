@@ -1,0 +1,226 @@
+// StreamSession.h
+// Unified single-stream session abstraction. Owns the media pipeline
+// (StreamPipeline/FFmpegStreamer) and the effect chain, and attaches a
+// MediaSession to a shared process-level StreamServer (which owns the
+// EventLoop + RtspServer shared across all streams).
+//
+// Supports two pipeline modes:
+//   serial   — FFmpegStreamer (single-threaded demux+decode+AI+encode+output)
+//   parallel — StreamPipeline (3-stage with RingBuffers)
+
+#ifndef STREAMSIGHT_FFMPEG_STREAM_SESSION_H
+#define STREAMSIGHT_FFMPEG_STREAM_SESSION_H
+
+#include "StreamPipeline.h"
+#include "IOutputAdapter.h"
+#include "../effect/EffectChain.h"
+#include "../observe/EventBus.h"
+#include <memory>
+#include <string>
+#include <vector>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <functional>
+#include <cstdint>
+
+namespace streamsight::net {
+class EventLoop;
+}  // namespace streamsight::net
+
+namespace streamsight::rtsp {
+class RtspServer;
+using MediaSessionId = uint32_t;
+}  // namespace streamsight::rtsp
+
+namespace streamsight::effect {
+struct EffectResult;
+class IEffectPlugin;
+}  // namespace streamsight::effect
+
+namespace streamsight::ffmpeg {
+
+class StreamServer;
+
+// ── Configuration ──────────────────────────────────────────────────────────
+
+struct StreamSessionConfig {
+    // Input
+    std::string input_url;
+    int         width  = 640;
+    int         height = 480;
+    int         fps    = 25;
+
+    // Network
+    std::string rtsp_suffix = "live";
+    int         http_port = 8080;
+    std::string rtmp_url;
+
+    // Encoder
+    int         bitrate    = 2000000;
+    int         enc_threads = 2;
+
+    // Pipeline mode
+    std::string pipeline_mode = "serial";
+    int         ringbuf_size   = 4;
+    int         max_frame_age_ms = 500;
+    int         time_window_ms   = 0;
+    bool        enable_client_gating = true;
+
+    // Reconnect on EOF/error (serial mode only — parallel uses StreamPipeline)
+    // When the input is an RTSP source, transient network errors cause
+    // av_read_frame() to fail. Enabling reconnect prevents the session from
+    // dying on the first error — the pipeline will Close+re-Open the demuxer.
+    bool        reconnect_on_eof   = true;
+    int         max_reconnect      = 10;
+    int         reconnect_delay_ms = 2000;
+
+    // AI
+    bool        enable_ai = true;
+    int         analyze_fps = 5;
+
+    // Audio
+    bool        enable_audio = true;
+
+    // Effects JSON (FaceRecognitionPlugin config)
+    std::string effects_json;
+};
+
+// ── Status ─────────────────────────────────────────────────────────────────
+
+struct SessionStatus {
+    bool        running = false;
+    int64_t     frames_processed = 0;
+    int64_t     frames_dropped   = 0;
+    int64_t     uptime_seconds   = 0;
+    int         rtsp_port = 0;
+    int         http_port = 0;
+    std::string stream_id;
+    std::string error;
+
+    // Stress testing fields
+    int         decode_ring_fill    = 0;
+    int         process_ring_fill   = 0;
+    int         max_decode_ring_fill  = 0;
+    int         max_process_ring_fill = 0;
+    int64_t     backpressure_events   = 0;
+    int64_t     frames_pruned         = 0;
+    double      avg_eventloop_latency_us = 0.0;
+    int         eventloop_active_fds     = 0;
+};
+
+// ── Events ─────────────────────────────────────────────────────────────────
+
+struct FrameProcessedEvent {
+    std::string stream_id;
+    int64_t     frame_id;
+    int64_t     timestamp_ms;
+    int         face_count;
+    std::string effect_results_json;
+};
+
+using SessionEventBus = streamsight::observe::EventBus<FrameProcessedEvent>;
+
+// ── StreamSession ──────────────────────────────────────────────────────────
+
+class StreamSession {
+public:
+    explicit StreamSession(const StreamSessionConfig& cfg);
+    ~StreamSession();
+
+    // Non-copyable
+    StreamSession(const StreamSession&) = delete;
+    StreamSession& operator=(const StreamSession&) = delete;
+
+    // Start the full pipeline against a shared StreamServer (one per process).
+    // Registers this session's MediaSession with the shared RtspServer.
+    // Returns false on configuration error or duplicate RTSP suffix.
+    // Idempotent if already running.
+    bool Start(StreamServer* server);
+
+    // Stop all processing, close AI plugins, and join threads.
+    // Idempotent if already stopped.
+    void Stop();
+
+    bool IsRunning() const { return running_; }
+
+    SessionStatus GetStatus() const;
+
+    // Replace the EffectChain with a new FaceRecognitionPlugin configured
+    // from JSON. Returns false if the plugin could not be created/opened.
+    bool UpdateEffects(const std::string& effects_json);
+
+    // Names of active effect plugins.
+    std::vector<std::string> GetEffectNames() const;
+
+    // Event bus for frame-processing notifications.
+    SessionEventBus& GetEventBus() { return event_bus_; }
+    const StreamSessionConfig& Config() const { return cfg_; }
+
+    // Raw pointer to RtspServer (for external integration, e.g. StreamApiServer).
+    void* GetRtspServer() const;
+
+    // MediaSessionId assigned by the RTSP server.
+    uint32_t GetSessionId() const;
+
+    // FaceRecognitionPlugin (may be nullptr if AI is disabled or init failed).
+    std::shared_ptr<streamsight::effect::IEffectPlugin> GetFacePlugin() const {
+        return face_plugin_;
+    }
+
+private:
+    void RunSerial();
+    void RunParallel();
+
+    StreamSessionConfig  cfg_;
+    std::atomic<bool>    running_{false};
+    std::atomic<bool>    stop_{false};
+    std::atomic<bool>    stopped_{false};  // single-use: no restart after Stop
+    mutable std::mutex   lifecycle_mutex_;
+
+    // RTSP infrastructure, owned by the shared StreamServer. Non-owning —
+    // the StreamServer outlives every session it hosts.
+    streamsight::rtsp::RtspServer*    rtsp_server_ = nullptr;
+    streamsight::net::EventLoop*      event_loop_  = nullptr;
+    streamsight::rtsp::MediaSessionId session_id_  = 0;
+
+    // AI / Effect plugin chain
+    streamsight::effect::EffectChain           effect_chain_;
+    std::shared_ptr<streamsight::effect::IEffectPlugin> face_plugin_;
+
+    // Pipeline (used in parallel mode). Guarded by pipeline_mutex_ for
+    // cross-thread access from GetStatus()/Stop() while RunParallel() runs.
+    std::shared_ptr<StreamPipeline>    pipeline_;
+    mutable std::mutex                 pipeline_mutex_;
+
+    // Output adapters
+    std::shared_ptr<IOutputAdapter>    rtsp_out_;
+    std::shared_ptr<IOutputAdapter>    rtmp_out_;
+
+    // Background run thread
+    std::thread                        run_thread_;
+
+    // ── Client-aware pipeline gating ────────────────────────────────────
+    // Pipeline runs only when RTSP clients are connected (event-driven).
+    // client_count_ tracks total connected clients (atomic for lock-free
+    // read from NotifyConnectedCallback / NotifyDisconnectedCallback).
+    std::atomic<int>                   client_count_{0};
+    std::mutex                         client_mutex_;
+    std::condition_variable            client_cv_;
+
+    void OnClientConnected();
+    void OnClientDisconnected();
+    void WaitForClients();
+
+    // Event bus for external observers
+    SessionEventBus                    event_bus_;
+
+    // Stats
+    std::atomic<int64_t>               frame_count_{0};
+    std::atomic<int64_t>               start_time_{0};
+};
+
+}  // namespace streamsight::ffmpeg
+
+#endif  // STREAMSIGHT_FFMPEG_STREAM_SESSION_H

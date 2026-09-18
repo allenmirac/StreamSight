@@ -1,0 +1,64 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Linker files
+*.ilk
+
+# Debugger Files
+*.pdb
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# debug information files
+*.dwo
+
+# files
+models/
+objs/
+bin/
+*.png
+*.mp4
+.vscode
+.cline
+.claude
+*.jsonl
+*.json
+CLAUDE.md
+build
+runtime
+docs/superpowers
+docs/interview.md
+*.log
+/scripts/__pycache__
+/stress_results
+/docs/interview
+/runtime_perf
+/build-debug-backup
