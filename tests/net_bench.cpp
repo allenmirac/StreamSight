@@ -481,12 +481,6 @@ BwResult BenchBw(EventLoop& loop, BenchServer& srv, uint16_t port, int nconns,
         return true;   // repeat
     }, static_cast<uint32_t>(tick_ms));
 
-    // TaskScheduler::AddTimer() does not write to the wakeup pipe, so a timer
-    // added while the loop is parked in epoll_wait(-1) will not fire until
-    // unrelated I/O happens to wake it. Nudge the loop the same way any other
-    // cross-thread AddTriggerEvent would. (See PLAN §8 bug list.)
-    loop.AddTriggerEvent([] {});
-
     std::vector<std::thread> drainers;
     const int nd = std::max(1, std::min(ndrain, static_cast<int>(fds.size())));
     for (int t = 0; t < nd; ++t) {

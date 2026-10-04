@@ -66,6 +66,10 @@ void TaskScheduler::Stop()
 TimerId TaskScheduler::AddTimer(TimerEvent timerEvent, uint32_t msec)
 {
 	TimerId id = timer_queue_.AddTimer(timerEvent, msec);
+
+	char event = kTriggetEvent;
+	wakeup_pipe_->Write(&event, 1);
+
 	return id;
 }
 
