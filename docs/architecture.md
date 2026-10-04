@@ -328,25 +328,9 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 ---
 
-## 9. 当前架构可能的优化方向
-
-1. **配置中心化**：当前配置分散在命令行参数和硬编码常量中，可引入配置文件（如 YAML/TOML）统一管理运行参数。
-2. **日志系统统一化**：各模块使用不同的日志输出方式，可统一为结构化日志框架，支持日志级别动态调整和文件轮转。
-3. **EffectPlugin 生态扩展**：当前仅有 FaceRecognitionPlugin，可扩展水印、马赛克、安全检测、美颜等插件。
-4. **StreamPipeline stage 间零拷贝优化**：当前 DecodedFrame/ProcessedFrame 通过 shared_ptr 传递像素数据，可改为环形缓冲区 + 指针传递减少分配开销。
-5. **RTSP 会话管理增强**：增加会话超时回收、并发流数限制和带宽统计能力。
-6. **HTTP API 文档完善**：补充 OpenAPI/Swagger 规范文档，便于前端对接和自动化测试。
-7. **测试体系扩展**：当前已有基础测试框架，可进一步提升覆盖率和增加集成测试场景。
-8. **Docker 化部署**：编写 Dockerfile 和 docker-compose，实现一键构建和运行，降低环境搭建成本。
-9. **CI/CD 构建流程完善**：接入 GitHub Actions 或 Jenkins，实现自动化编译、测试和发布。
-10. **录制与多协议输出**：当前支持 RTSP 和 RTMP 输出，可扩展 MP4 录制和 HLS 切片输出能力。
-11. **EncoderPool 共享编码线程池**：见 `docs/superpowers/specs/2026-09-07-performance-optimization-encoderpool-cdn.md`，服务 8 路 P99<300ms 目标。**当前实测 8 路 parallel P99=330ms（Release，纯管线）尚未达标**，见 `docs/interview/性能测试报告.md`。
-12. **CDN 边缘调度（自研 RPC）**：同 spec，基于 `src/net/` 自研 RPC，不引入 gRPC。
-13. **Content Understanding 集成**：Phase 3 规划中，接入视频摘要、场景理解等更高级的 AI 能力。
-
 ---
 
-## 10. 总结
+## 9. 总结
 
 StreamSight 是一个融合了网络编程、流媒体协议、AI 视频分析、插件化架构和系统可观测能力的综合型 C++ 项目。它以自研 RTSP/RTP 协议栈和 FFmpeg C API 进程内管线为核心，通过分层架构实现了从视频接入、AI 分析、画面叠加、视频编码到多协议分发的完整媒体处理链路。引入了 EffectPlugin 可扩展插件体系、StreamSession 统一会话抽象、StreamPipeline 3-stage 并行管线、StreamApiServer 合并式 API 服务和 EventBus 事件总线，将项目从一个"单链路流媒体分析程序"升级为"具备平台化能力的流媒体处理系统"。
 

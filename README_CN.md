@@ -163,9 +163,7 @@ docs/
 ├── architecture.md          系统架构说明
 ├── api.md                   REST API 文档
 ├── setup.md                 安装与运行指南
-├── latency-testing-implementation.md  延迟测试实现
-├── interview/               面试准备材料 (性能测试报告、面试手册、拷打题库)
-└── superpowers/             规划文档 (Phase 3 计划、性能优化 spec)
+└──latency-testing-implementation.md  延迟测试实现
 ```
 
 ---
@@ -196,16 +194,15 @@ docs/
 
 ## 开发路线
 
-**已完成**
+**已完成** — Phase 1：进程内 FFmpeg 管线（取代 fork+pipe）+ EffectPlugin 接口 · Phase 2：进程级共享 StreamServer + StreamSession/EventBus · Phase 3：合并式 HTTP API + Effect 动态配置 · Phase 4：legacy `ai::` fork+pipe 死代码清理。
 
-- **Phase 1**: 进程内 FFmpeg 管线（取代 fork+pipe）+ EffectPlugin 接口 + 代码清理
-- **Phase 2**: StreamServer 进程级共享 EventLoop + StreamSession 抽象 + HTTP API 平台化 + Effect 动态配置
+**规划中** — 统一记在 `docs/superpowers/PLAN.md`（唯一计划入口，本地文档、已被 gitignore），用 `T1`–`T5` 编号；优先级、设计与验收标准见该文档。
 
-**规划中**
-
-- **EncoderPool**: 共享编码线程池（性能优化，下一步）
-- **CDN**: 基于自研 RPC 的边缘调度（不引入 gRPC）
-- **Phase 3**: 视频摘要 + Content Understanding + Agent 工具接口
+- **T1** 遗留修复 —— 人脸检测失效（P0）、帧率 pacing、serial 埋点
+- **T2** EncoderPool —— 共享编码线程池，目标 8 路 P99 < 300ms
+- **T3** 边缘 LLM 推理调度器 —— 以模型测速可行性为前置闸门
+- **T4** 内容理解 —— 视频摘要 + Agent 工具接口
+- **T5** CDN —— 基于自研 RPC 的边缘调度（不引入 gRPC）
 
 ---
 

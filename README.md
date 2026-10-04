@@ -80,7 +80,7 @@ wget -O models/face_recognition.onnx \
 ./build/bin/streamsight --input pic/test.mp4 --no-ai --port 8554
 
 # Use valgrind
-valgrind --tool=memcheck --leak-check=full --show-leak-kinds=all --undef-value-errors=no --log-file=log.log ./build/bin/streamsight --input pic/pic/test.mp4 --no-ai --port 8554
+valgrind --tool=memcheck --leak-check=full --show-leak-kinds=all --undef-value-errors=no --log-file=log.log ./build/bin/streamsight --input pic/test.mp4 --no-ai --port 8554
 
 # RTMP output (requires SRS running, see below)
 ./build/bin/streamsight --input pic/test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
@@ -171,9 +171,7 @@ docs/
 ├── architecture.md          System architecture (Chinese)
 ├── api.md                   REST API documentation
 ├── setup.md                 Install & run guide
-├── latency-testing-implementation.md  Latency testing implementation
-├── interview/               Interview prep (perf report, handbook, Q&A bank)
-└── superpowers/             Planning docs (Phase 3 plan, perf optimization spec)
+└── latency-testing-implementation.md  Latency testing implementation
 ```
 
 ---
@@ -267,16 +265,16 @@ The JSON output includes:
 
 ## Roadmap
 
-**Completed**
+**Completed** — Phase 1: in-process FFmpeg pipeline (replacing fork+pipe) + EffectPlugin interface · Phase 2: process-level shared StreamServer + StreamSession/EventBus · Phase 3: merged HTTP API + dynamic effect config · Phase 4: legacy `ai::` fork+pipe code cleanup.
 
-- **Phase 1**: In-process FFmpeg pipeline (replacing fork+pipe) + EffectPlugin interface + code cleanup
-- **Phase 2**: StreamServer process-level shared EventLoop + StreamSession abstraction + HTTP API platformization + dynamic effect config
+**Planned** — tracked as `T1`–`T5` in `docs/superpowers/PLAN.md`, the single planning entry point
+(local-only, gitignored). Priorities, design and acceptance criteria live there.
 
-**Planned**
-
-- **EncoderPool**: shared encoder thread pool (performance, next step)
-- **CDN**: edge scheduling over a custom RPC (no gRPC dependency)
-- **Phase 3**: Video summarization + Content Understanding + Agent tool interface
+- **T1** Legacy fixes — face detection (P0), frame-rate pacing, serial instrumentation
+- **T2** EncoderPool — shared encoder thread pool, targeting 8-stream P99 < 300ms
+- **T3** Edge LLM inference scheduler — gated on a model-benchmark feasibility step
+- **T4** Content understanding — video summarization + Agent tool interface
+- **T5** CDN — edge scheduling over a custom RPC (no gRPC dependency)
 
 ---
 
