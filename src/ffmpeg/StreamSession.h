@@ -68,6 +68,10 @@ struct StreamSessionConfig {
     int         time_window_ms   = 0;
     bool        enable_client_gating = true;
 
+    // Real-time pacing for file sources (0 = free-run). Network sources
+    // (RTSP/camera) are already real-time and should leave this at 0.
+    int         pace_fps = 0;
+
     // Reconnect on EOF/error (serial mode only — parallel uses StreamPipeline)
     // When the input is an RTSP source, transient network errors cause
     // av_read_frame() to fail. Enabling reconnect prevents the session from

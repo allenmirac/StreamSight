@@ -61,4 +61,5 @@ docs/interview.md
 /stress_results
 /docs/interview
 /runtime_perf
-/build-debug-backup
+/runtime_netbench
+/build*/

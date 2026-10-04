@@ -8,6 +8,7 @@
 
 #include "FFmpegUtils.h"
 #include "IOutputAdapter.h"
+#include "Pacer.h"
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -55,6 +56,10 @@ struct StreamerConfig {
     int         fps        = 25;
     int         gop_size   = 0;        // 0 = equal to fps
     int         threads    = 2;        // encoder thread count
+
+    // ── Pacing ──────────────────────────────────────────────
+    // Emit frames at this rate; 0 disables (file sources otherwise free-run).
+    int         pace_fps   = 0;
 
     // ── Output ──────────────────────────────────────────────
     std::vector<std::shared_ptr<IOutputAdapter>> outputs;
@@ -132,6 +137,7 @@ private:
     int               dec_height_ = 0;
     AVPixelFormat     dec_pix_fmt_ = AV_PIX_FMT_NONE;
     int64_t           frame_seq_  = 0;
+    Pacer             pacer_;
 };
 
 }  // namespace streamsight::ffmpeg

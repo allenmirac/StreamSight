@@ -264,3 +264,21 @@ if(FFMPEG_FOUND AND OpenCV_FOUND)
 else()
     message(STATUS "  - streamsight-stress (requires FFmpeg + OpenCV, skipped)")
 endif()
+
+# streamsight-netbench: network-layer microbenchmark.
+# Only needs src/net/, so it builds even without FFmpeg/OpenCV.
+add_executable(streamsight-netbench
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/net_bench.cpp
+    ${NET_SRCS}
+)
+target_include_directories(streamsight-netbench PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/net
+)
+target_link_libraries(streamsight-netbench pthread dl rt m)
+target_compile_options(streamsight-netbench PRIVATE -Wall -Wextra)
+# Stamp the build type into the binary so a stored JSON can never be mistaken
+# for one produced by a different optimisation level.
+target_compile_definitions(streamsight-netbench PRIVATE
+    STREAMSIGHT_BUILD_TYPE="${CMAKE_BUILD_TYPE}")
+message(STATUS "  - streamsight-netbench")

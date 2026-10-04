@@ -249,6 +249,7 @@ void StreamSession::RunSerial() {
     scfg.threads       = cfg_.enc_threads;
     scfg.output_width  = cfg_.width;
     scfg.output_height = cfg_.height;
+    scfg.pace_fps      = cfg_.pace_fps;
 
     if (!effect_chain_.Empty()) {
         scfg.frame_cb = [this](FFmpegFrame& f) -> bool {
@@ -341,6 +342,7 @@ void StreamSession::RunParallel() {
     pcfg.threads       = cfg_.enc_threads;
     pcfg.output_width  = cfg_.width;
     pcfg.output_height = cfg_.height;
+    pcfg.pace_fps      = cfg_.pace_fps;
     pcfg.decode_ring_size  = cfg_.ringbuf_size;
     pcfg.process_ring_size = cfg_.ringbuf_size;
     pcfg.audio_ring_size   = cfg_.ringbuf_size * 2;

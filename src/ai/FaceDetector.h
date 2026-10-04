@@ -1,6 +1,12 @@
 // FaceDetector.h
-// Face detection using OpenCV DNN module with YuFaceDetectNet or
-// a compatible SSD-style ONNX model (e.g. RetinaFace-MobileNet).
+// Face detection using the OpenCV DNN module with a YuNet ONNX model.
+//
+// We run the model through the generic cv::dnn API and decode the raw YuNet
+// heads ourselves, instead of using cv::FaceDetectorYN. On the OpenCV 4.5.4
+// shipped with Ubuntu 22.04, FaceDetectorYN targets an older YuNet anchor
+// layout and its detect() fails on current zoo models with
+// "Layer with requested id=-1" (see PLAN.md T1.1). Driving cv::dnn directly is
+// the same approach FaceRecognizer already uses, and keeps the model usable.
 //
 // Thread safety: NOT thread-safe. Use from a single analysis thread.
 
@@ -8,7 +14,7 @@
 #define STREAMSIGHT_AI_FACE_DETECTOR_H
 
 #include <opencv2/opencv.hpp>
-#include <opencv2/objdetect/face.hpp>
+#include <opencv2/dnn.hpp>
 #include <vector>
 #include <string>
 
@@ -56,12 +62,17 @@ public:
     bool IsLoaded() const { return loaded_; }
 
 private:
+    // Greedy non-maximum suppression over score-sorted candidates.
+    static std::vector<FaceBox> Nms(const std::vector<FaceBox>& boxes,
+                                    float iou_thresh);
+
     std::string  model_path_;
     float        score_thresh_;
     float        nms_thresh_;
     cv::Size     input_size_;
     bool         loaded_ = false;
-    cv::Ptr<cv::FaceDetectorYN> net_;
+    cv::dnn::Net net_;
+    std::vector<std::string> out_names_;
 };
 
 }  // namespace streamsight::ai

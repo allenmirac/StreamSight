@@ -44,6 +44,7 @@ bool StreamPipeline::Start() {
 	if (running_) return true;
 
 	stop_ = false;
+	pacer_.SetFps(cfg_.pace_fps);
 	demux_thread_ = std::thread(&StreamPipeline::DemuxDecodeLoop, this);
 	ai_thread_    = std::thread(&StreamPipeline::AIProcessLoop, this);
 	encode_thread_ = std::thread(&StreamPipeline::EncodeOutputLoop, this);
@@ -315,6 +316,9 @@ void StreamPipeline::DemuxDecodeLoop() {
 			});
 		}
 		if (stop_) break;
+
+		// Real-time pacing: no-op unless cfg_.pace_fps > 0 (file sources).
+		pacer_.Wait();
 
 		auto capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now().time_since_epoch()).count();

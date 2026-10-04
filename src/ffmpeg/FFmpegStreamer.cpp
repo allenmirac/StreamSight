@@ -4,6 +4,7 @@
 
 #include "FFmpegStreamer.h"
 #include "FFmpegUtils.h"
+#include "observe/LatencyTracer.h"
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -46,6 +47,7 @@ bool FFmpegStreamer::Open() {
     if (!OpenOutputs()) return false;
 
     opened_ = true;
+    pacer_.SetFps(cfg_.pace_fps);
     std::cout << "[FFmpegStreamer] opened: " << cfg_.input_url
               << " " << dec_width_ << "x" << dec_height_
               << " @" << cfg_.fps << " fps  bitrate=" << cfg_.bitrate
@@ -484,20 +486,27 @@ bool FFmpegStreamer::EncodeAndDeliver(AVFrame* enc_in) {
 bool FFmpegStreamer::ProcessNextFrame() {
     if (!opened_) return false;
 
-    // 1. Demux + decode → decoded_ AVFrame
+    // Real-time pacing: no-op unless cfg_.pace_fps > 0 (file sources).
+    pacer_.Wait();
+
+    // 1–2. Demux + decode + colour-convert to BGR24.
+    // Scope mirrors the parallel pipeline's "pipeline/demux_decode" stage so
+    // serial-mode latency is observable on the same terms.
     auto capture_time = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
 
-    if (!ReadAndDecode(decoded_)) {
-        return false;  // EOF or error
-    }
+    {
+        STREAMSIGHT_LATENCY_SCOPE("pipeline", "demux_decode");
+        if (!ReadAndDecode(decoded_)) {
+            return false;  // EOF or error
+        }
 
-    // 2. Colorspace: decoder fmt → BGR24 (into persistent bgr_ buffer)
-    sws_scale(to_bgr_,
-              (const uint8_t* const*)decoded_->data,
-              decoded_->linesize,
-              0, dec_height_,
-              bgr_->data, bgr_->linesize);
+        sws_scale(to_bgr_,
+                  (const uint8_t* const*)decoded_->data,
+                  decoded_->linesize,
+                  0, dec_height_,
+                  bgr_->data, bgr_->linesize);
+    }
 
     // 3. AI interception callback (in-place overlay)
     if (cfg_.frame_cb) {
@@ -518,18 +527,19 @@ bool FFmpegStreamer::ProcessNextFrame() {
         }
     }
 
-    // 4. Colorspace: BGR24 → YUV420P (encoder input)
-    sws_scale(to_enc_,
-              (const uint8_t* const*)bgr_->data,
-              bgr_->linesize,
-              0, dec_height_,
-              enc_in_->data, enc_in_->linesize);
+    // 4–6. BGR24 → YUV420P, set PTS, encode and deliver to outputs.
+    {
+        STREAMSIGHT_LATENCY_SCOPE("pipeline", "encode");
+        sws_scale(to_enc_,
+                  (const uint8_t* const*)bgr_->data,
+                  bgr_->linesize,
+                  0, dec_height_,
+                  enc_in_->data, enc_in_->linesize);
 
-    // 5. Set PTS
-    enc_in_->pts = frame_seq_;
+        enc_in_->pts = frame_seq_;
 
-    // 6. Encode + deliver to outputs
-    EncodeAndDeliver(enc_in_);
+        EncodeAndDeliver(enc_in_);
+    }
 
     // 7. Cleanup
     av_frame_unref(decoded_);

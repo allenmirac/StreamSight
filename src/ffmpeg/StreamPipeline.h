@@ -13,6 +13,7 @@
 #include "FFmpegUtils.h"
 #include "FrameDropPolicy.h"
 #include "IOutputAdapter.h"
+#include "Pacer.h"
 #include "net/RingBuffer.h"
 #include <atomic>
 #include <condition_variable>
@@ -84,6 +85,10 @@ struct PipelineConfig {
 	int         fps        = 25;
 	int         gop_size   = 0;
 	int         threads    = 2;
+
+	// ── Pacing ──────────────────────────────────────────────
+	// Emit frames at this rate; 0 disables (file sources otherwise free-run).
+	int         pace_fps   = 0;
 
 	// ── Ring buffer sizes ───────────────────────────────────
 	int decode_ring_size  = 4;   // demux → AI
@@ -213,6 +218,9 @@ private:
 	std::atomic<int> max_decode_ring_fill_{0};
 	std::atomic<int> max_process_ring_fill_{0};
 	std::atomic<int64_t> backpressure_events_{0};
+
+	// Real-time pacing (file sources), used by DemuxDecodeLoop.
+	Pacer pacer_;
 };
 
 }  // namespace streamsight::ffmpeg

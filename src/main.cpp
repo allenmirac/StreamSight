@@ -56,6 +56,7 @@ static std::map<std::string, std::string> ParseArgs(int argc, char** argv) {
     args["time-window-ms"] = "0";
     args["eventloop-threads"] = "2";
     args["enable-audio"]   = "1";
+    args["pace-fps"]       = "-1";   // -1 = auto (pace file sources at --fps)
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -97,6 +98,19 @@ int main(int argc, char** argv) {
     cfg.max_frame_age_ms = std::stoi(args["max-frame-age-ms"]);
     cfg.time_window_ms  = std::stoi(args["time-window-ms"]);
     cfg.enable_audio    = (args["enable-audio"] != "0");
+
+    // Real-time pacing for file sources. Network/camera inputs are already
+    // real-time, so auto leaves them unpaced. An explicit --pace-fps >= 0 wins.
+    const std::string& in_url = args["input"];
+    bool network_source = in_url.rfind("rtsp://", 0) == 0 ||
+                          in_url.rfind("rtmp://", 0) == 0 ||
+                          in_url.rfind("http://", 0) == 0 ||
+                          in_url.rfind("https://", 0) == 0;
+    int pace_fps = std::stoi(args["pace-fps"]);
+    if (pace_fps < 0) {
+        pace_fps = (args["source"] == "camera" || network_source) ? 0 : cfg.fps;
+    }
+    cfg.pace_fps = pace_fps;
 
     // Pass AI model paths via effects_json
     if (cfg.enable_ai) {
