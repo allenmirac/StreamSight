@@ -34,9 +34,10 @@ TcpConnection::~TcpConnection() {
 
 void TcpConnection::Send(std::shared_ptr<char> data, uint32_t size) {
   if (!is_closed_) {
-    mutex_.lock();
-    write_buffer_->Append(data, size);
-    mutex_.unlock();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      write_buffer_->Append(data, size);
+    }
 
     this->HandleWrite();
   }
@@ -44,9 +45,10 @@ void TcpConnection::Send(std::shared_ptr<char> data, uint32_t size) {
 
 void TcpConnection::Send(const char* data, uint32_t size) {
   if (!is_closed_) {
-    mutex_.lock();
-    write_buffer_->Append(data, size);
-    mutex_.unlock();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      write_buffer_->Append(data, size);
+    }
 
     this->HandleWrite();
   }

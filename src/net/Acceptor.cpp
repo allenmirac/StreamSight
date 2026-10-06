@@ -48,14 +48,22 @@ void Acceptor::Close() {
 }
 
 void Acceptor::OnAccept() {
-  std::lock_guard<std::mutex> locker(mutex_);
-
-  SOCKET socket = tcp_socket_->Accept();
-  if (socket > 0) {
-    if (new_connection_callback_) {
-      new_connection_callback_(socket);
-    } else {
-      SocketUtil::Close(socket);
+  constexpr int kMaxPerIteration = 64;
+  NewConnectionCallback cb;
+  for (int n = 0; n < kMaxPerIteration; ++n) {
+    SOCKET fd = INVALID_SOCKET;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      cb = new_connection_callback_;
+      fd = tcp_socket_->Accept();
+		}
+    if (fd < 0) {
+      const int e = errno;
+      if (e == EAGAIN || e == EWOULDBLOCK) break;
+      if (e == EINTR || e == ECONNABORTED || e == EPROTO) continue;
+      LOG_ERROR("accept failed: %s", strerror(e));
+      break;
     }
+    cb ? cb(fd) : SocketUtil::Close(fd);
   }
 }
