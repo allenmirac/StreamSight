@@ -1,12 +1,70 @@
+# 语言与基准
+Language: Cpp
 BasedOnStyle: Google
-IndentWidth: 4
-ColumnLimit: 100
-AccessModifierOffset: -4
-UseTab: ForIndentation
-TabWidth: 4
+
+# 缩进
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+AccessModifierOffset: -1
+ContinuationIndentWidth: 4
+
+# 列宽
+ColumnLimit: 80
+
+# 大括号
 BreakBeforeBraces: Attach
-AllowShortIfStatementsOnASingleLine: false
-AllowShortLoopsOnASingleLine: false
-IndentCaseLabels: true
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+IndentCaseLabels: false
+
+# 指针与引用
 PointerAlignment: Left
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+
+# 空格
 SpaceAfterTemplateKeyword: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesInAngles: false
+SpacesBeforeTrailingComments: 2
+
+# include 排序
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex:    '^<.*\.h>'
+    Priority: 1
+  - Regex:    '^<.*>'
+    Priority: 2
+  - Regex:    '^"(llvm|llvm-c|clang|clang-c)/'
+    Priority: 3
+  - Regex:    '^(<|"(gtest|gmock|isl|json)/)'
+    Priority: 4
+  - Regex:    '.*'
+    Priority: 5
+
+# 参数与参数列表
+BinPackArguments: true
+BinPackParameters: true
+AlignAfterOpenBracket: Align
+
+# 对齐
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: true
+AlignOperands: Align
+
+# 命名空间
+FixNamespaceComments: true
+NamespaceIndentation: None
+
+# 其他
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+ReflowComments: true
+Standard: c++17

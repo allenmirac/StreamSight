@@ -2,11 +2,12 @@
 #ifndef STREAMSIGHT_NET_BUFFER_READER_H
 #define STREAMSIGHT_NET_BUFFER_READER_H
 
+#include <algorithm>
 #include <cstdint>
-#include <vector>
+#include <memory>
 #include <string>
-#include <algorithm>  
-#include <memory>  
+#include <vector>
+
 #include "Socket.h"
 
 namespace streamsight::net {
@@ -17,93 +18,84 @@ uint32_t ReadUint24BE(char* data);
 uint32_t ReadUint24LE(char* data);
 uint16_t ReadUint16BE(char* data);
 uint16_t ReadUint16LE(char* data);
-    
-class BufferReader
-{
-public:	
-	BufferReader(uint32_t initial_size = 2048);
-	virtual ~BufferReader();
 
-	uint32_t ReadableBytes() const
-	{ return (uint32_t)(writer_index_ - reader_index_); }
+class BufferReader {
+ public:
+  BufferReader(uint32_t initial_size = 2048);
+  virtual ~BufferReader();
 
-	uint32_t WritableBytes() const
-	{  return (uint32_t)(buffer_.size() - writer_index_); }
+  uint32_t ReadableBytes() const {
+    return (uint32_t)(writer_index_ - reader_index_);
+  }
 
-	char* Peek() 
-	{ return Begin() + reader_index_; }
+  uint32_t WritableBytes() const {
+    return (uint32_t)(buffer_.size() - writer_index_);
+  }
 
-	const char* Peek() const
-	{ return Begin() + reader_index_; }
+  char* Peek() { return Begin() + reader_index_; }
 
-	const char* FindFirstCrlf() const {    
-		const char* crlf = std::search(Peek(), BeginWrite(), kCRLF, kCRLF+2);
-		return crlf == BeginWrite() ? nullptr : crlf;
-	}
+  const char* Peek() const { return Begin() + reader_index_; }
 
-	const char* FindLastCrlf() const {    
-		const char* crlf = std::find_end(Peek(), BeginWrite(), kCRLF, kCRLF+2);
-		return crlf == BeginWrite() ? nullptr : crlf;
-	}
+  const char* FindFirstCrlf() const {
+    const char* crlf = std::search(Peek(), BeginWrite(), kCRLF, kCRLF + 2);
+    return crlf == BeginWrite() ? nullptr : crlf;
+  }
 
-	const char* FindLastCrlfCrlf() const {
-		char crlfCrlf[] = "\r\n\r\n";
-		const char* crlf = std::find_end(Peek(), BeginWrite(), crlfCrlf, crlfCrlf + 4);
-		return crlf == BeginWrite() ? nullptr : crlf;
-	}
+  const char* FindLastCrlf() const {
+    const char* crlf = std::find_end(Peek(), BeginWrite(), kCRLF, kCRLF + 2);
+    return crlf == BeginWrite() ? nullptr : crlf;
+  }
 
-	void RetrieveAll()  { 
-		writer_index_ = 0; 
-		reader_index_ = 0; 
-	}
+  const char* FindLastCrlfCrlf() const {
+    char crlfCrlf[] = "\r\n\r\n";
+    const char* crlf =
+        std::find_end(Peek(), BeginWrite(), crlfCrlf, crlfCrlf + 4);
+    return crlf == BeginWrite() ? nullptr : crlf;
+  }
 
-	void Retrieve(size_t len) {
-		if (len <= ReadableBytes()) {
-			reader_index_ += len;
-			if(reader_index_ == writer_index_) {
-				reader_index_ = 0;
-				writer_index_ = 0;
-			}
-		}
-		else {
-			RetrieveAll();
-		}
-	}
+  void RetrieveAll() {
+    writer_index_ = 0;
+    reader_index_ = 0;
+  }
 
-	void RetrieveUntil(const char* end)
-	{ Retrieve(end - Peek()); }
+  void Retrieve(size_t len) {
+    if (len <= ReadableBytes()) {
+      reader_index_ += len;
+      if (reader_index_ == writer_index_) {
+        reader_index_ = 0;
+        writer_index_ = 0;
+      }
+    } else {
+      RetrieveAll();
+    }
+  }
 
-	int Read(SOCKET sockfd);
-	uint32_t ReadAll(std::string& data);
-	uint32_t ReadUntilCrlf(std::string& data);
+  void RetrieveUntil(const char* end) { Retrieve(end - Peek()); }
 
-	uint32_t Size() const 
-	{ return (uint32_t)buffer_.size(); }
+  int Read(SOCKET sockfd);
+  uint32_t ReadAll(std::string& data);
+  uint32_t ReadUntilCrlf(std::string& data);
 
-private:
-	char* Begin()
-	{ return &*buffer_.begin(); }
+  uint32_t Size() const { return (uint32_t)buffer_.size(); }
 
-	const char* Begin() const
-	{ return &*buffer_.begin(); }
+ private:
+  char* Begin() { return &*buffer_.begin(); }
 
-	char* beginWrite()
-	{ return Begin() + writer_index_; }
+  const char* Begin() const { return &*buffer_.begin(); }
 
-	const char* BeginWrite() const
-	{ return Begin() + writer_index_; }
+  char* beginWrite() { return Begin() + writer_index_; }
 
-	std::vector<char> buffer_;
-	size_t reader_index_ = 0;
-	size_t writer_index_ = 0;
+  const char* BeginWrite() const { return Begin() + writer_index_; }
 
-	static const char kCRLF[];
-	static const uint32_t MAX_BYTES_PER_READ = 4096;
-	static const uint32_t MAX_BUFFER_SIZE = 1024 * 100000;
+  std::vector<char> buffer_;
+  size_t reader_index_ = 0;
+  size_t writer_index_ = 0;
+
+  static const char kCRLF[];
+  static const uint32_t MAX_BYTES_PER_READ = 4096;
+  static const uint32_t MAX_BUFFER_SIZE = 1024 * 100000;
 };
 
 }  // namespace streamsight::net
 
 #endif
-
-

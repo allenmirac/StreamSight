@@ -1,12 +1,13 @@
 // FFmpegUtils.h
-// Utility functions: error strings, AVFrame-to-cv::Mat bridge, timestamp helpers.
+// Utility functions: error strings, AVFrame-to-cv::Mat bridge, timestamp
+// helpers.
 
 #ifndef STREAMSIGHT_FFMPEG_UTILS_H
 #define STREAMSIGHT_FFMPEG_UTILS_H
 
+#include <cstdint>
 #include <opencv2/opencv.hpp>
 #include <string>
-#include <cstdint>
 
 extern "C" {
 #include <libavutil/error.h>
@@ -21,33 +22,34 @@ std::string av_err_str(int errnum);
 
 // Frame wrapper passed to AI interception callback.
 struct FFmpegFrame {
-    int      width;
-    int      height;
-    int      linesize;      // bytes per row (may include padding)
-    uint8_t* data;          // BGR24 pixel data (owned by FFmpegStreamer)
-    int64_t  pts;           // original decoder PTS in stream timebase
-    int64_t  frame_index;   // sequential counter from stream start
-    bool     is_keyframe;
-    int64_t  capture_time_us = 0;  // steady_clock timestamp at capture (ReadAndDecode)
+  int width;
+  int height;
+  int linesize;         // bytes per row (may include padding)
+  uint8_t* data;        // BGR24 pixel data (owned by FFmpegStreamer)
+  int64_t pts;          // original decoder PTS in stream timebase
+  int64_t frame_index;  // sequential counter from stream start
+  bool is_keyframe;
+  int64_t capture_time_us =
+      0;  // steady_clock timestamp at capture (ReadAndDecode)
 };
 
 // Zero-copy: wrap FFmpegFrame BGR24 data as cv::Mat for AI processing.
 // The returned cv::Mat references frame.data directly — caller must not
 // let the cv::Mat outlive the FFmpegFrame.
 inline cv::Mat FrameToMat(const FFmpegFrame& f) {
-    return cv::Mat(f.height, f.width, CV_8UC3, f.data, (size_t)f.linesize);
+  return cv::Mat(f.height, f.width, CV_8UC3, f.data, (size_t)f.linesize);
 }
 
 // Convert encoder PTS (in {1, fps} timebase) to 90kHz RTSP timestamp.
 inline uint32_t PtsTo90kHz(int64_t pts, int fps) {
-    return (uint32_t)(pts * 90000 / fps);
+  return (uint32_t)(pts * 90000 / fps);
 }
 
 // Convert AVRational to double (e.g., {1, 25} → 0.04).
 inline double AvRationalToDouble(AVRational r) {
-    return r.den ? (double)r.num / (double)r.den : 0.0;
+  return r.den ? (double)r.num / (double)r.den : 0.0;
 }
 
 }  // namespace streamsight::ffmpeg
 
-#endif // STREAMSIGHT_FFMPEG_UTILS_H
+#endif  // STREAMSIGHT_FFMPEG_UTILS_H

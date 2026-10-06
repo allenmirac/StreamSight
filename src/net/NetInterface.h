@@ -6,10 +6,9 @@
 
 namespace streamsight::net {
 
-class NetInterface
-{
-public:
-    static std::string GetLocalIPAddress();
+class NetInterface {
+ public:
+  static std::string GetLocalIPAddress();
 };
 
 }  // namespace streamsight::net

@@ -12,11 +12,12 @@ int run_stream_session_tests();
 int run_api_server_tests();
 
 int main() {
-    int failed = 0;
-    failed += run_event_bus_tests();
-    failed += run_effect_factory_tests();
-    failed += run_stream_session_tests();
-    failed += run_api_server_tests();
-    std::cout << "test_smoke: " << (failed == 0 ? "ALL PASSED" : "SOME FAILED") << std::endl;
-    return failed;
+  int failed = 0;
+  failed += run_event_bus_tests();
+  failed += run_effect_factory_tests();
+  failed += run_stream_session_tests();
+  failed += run_api_server_tests();
+  std::cout << "test_smoke: " << (failed == 0 ? "ALL PASSED" : "SOME FAILED")
+            << std::endl;
+  return failed;
 }

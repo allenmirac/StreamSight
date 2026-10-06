@@ -9,33 +9,34 @@
 #ifndef STREAMSIGHT_AI_FRAME_ANALYZER_H
 #define STREAMSIGHT_AI_FRAME_ANALYZER_H
 
-#include "FaceDetector.h"
-#include "FaceRecognizer.h"
-#include "FaceDatabase.h"
-#include <opencv2/opencv.hpp>
-#include <vector>
-#include <string>
-#include <mutex>
-#include <functional>
 #include <cstdint>
 #include <ctime>
+#include <functional>
+#include <mutex>
+#include <opencv2/opencv.hpp>
+#include <string>
+#include <vector>
+
+#include "FaceDatabase.h"
+#include "FaceDetector.h"
+#include "FaceRecognizer.h"
 
 namespace streamsight::ai {
 
 /** @brief Analysis result for one detected face. */
 struct FaceResult {
-    cv::Rect    box;         ///< Bounding box in frame pixels
-    float       confidence;  ///< Detection confidence
-    std::string name;        ///< Recognized name, or "unknown"
-    float       similarity;  ///< Recognition similarity score
-    bool        recognized;  ///< True if name was matched in DB
+  cv::Rect box;      ///< Bounding box in frame pixels
+  float confidence;  ///< Detection confidence
+  std::string name;  ///< Recognized name, or "unknown"
+  float similarity;  ///< Recognition similarity score
+  bool recognized;   ///< True if name was matched in DB
 };
 
 /** @brief Full analysis result for one frame. */
 struct AnalysisResult {
-    std::vector<FaceResult> faces;   ///< All detected (and identified) faces
-    int64_t                 timestamp_ms; ///< Unix time in milliseconds
-    int                     frame_id;    ///< Sequential frame counter
+  std::vector<FaceResult> faces;  ///< All detected (and identified) faces
+  int64_t timestamp_ms;           ///< Unix time in milliseconds
+  int frame_id;                   ///< Sequential frame counter
 };
 
 /**
@@ -48,59 +49,59 @@ struct AnalysisResult {
  *   analyzer.Analyze(frame);     // call every frame; respects rate limit
  */
 class FrameAnalyzer {
-public:
-    using EventCallback = std::function<void(const AnalysisResult&)>;
+ public:
+  using EventCallback = std::function<void(const AnalysisResult&)>;
 
-    /**
-     * @param detector    Loaded FaceDetector.
-     * @param recognizer  Loaded FaceRecognizer (may be nullptr to skip recognition).
-     * @param database    Face database (may be nullptr to skip lookup).
-     */
-    FrameAnalyzer(FaceDetector*    detector,
-                  FaceRecognizer*  recognizer,
-                  FaceDatabase*    database);
+  /**
+   * @param detector    Loaded FaceDetector.
+   * @param recognizer  Loaded FaceRecognizer (may be nullptr to skip
+   * recognition).
+   * @param database    Face database (may be nullptr to skip lookup).
+   */
+  FrameAnalyzer(FaceDetector* detector, FaceRecognizer* recognizer,
+                FaceDatabase* database);
 
-    /**
-     * @brief Maximum number of analyze() calls per second.
-     * Frames in between reuse the last cached result.
-     */
-    void SetAnalyzeRate(int fps) { analyze_fps_ = fps; }
+  /**
+   * @brief Maximum number of analyze() calls per second.
+   * Frames in between reuse the last cached result.
+   */
+  void SetAnalyzeRate(int fps) { analyze_fps_ = fps; }
 
-    /**
-     * @brief Register callback invoked after each analysis (on analysis thread).
-     */
-    void SetEventCallback(EventCallback cb) { event_cb_ = std::move(cb); }
+  /**
+   * @brief Register callback invoked after each analysis (on analysis thread).
+   */
+  void SetEventCallback(EventCallback cb) { event_cb_ = std::move(cb); }
 
-    /**
-     * @brief Process one frame. Runs AI if rate allows, otherwise returns
-     *        cached result immediately.
-     * @return Latest AnalysisResult.
-     */
-    AnalysisResult Analyze(const cv::Mat& frame);
+  /**
+   * @brief Process one frame. Runs AI if rate allows, otherwise returns
+   *        cached result immediately.
+   * @return Latest AnalysisResult.
+   */
+  AnalysisResult Analyze(const cv::Mat& frame);
 
-    /** @brief Thread-safe read of last cached result. */
-    AnalysisResult GetLastResult() const;
+  /** @brief Thread-safe read of last cached result. */
+  AnalysisResult GetLastResult() const;
 
-private:
-    FaceDetector*   detector_;
-    FaceRecognizer* recognizer_;
-    FaceDatabase*   database_;
+ private:
+  FaceDetector* detector_;
+  FaceRecognizer* recognizer_;
+  FaceDatabase* database_;
 
-    int             analyze_fps_  = 5;
-    int             frame_id_     = 0;
+  int analyze_fps_ = 5;
+  int frame_id_ = 0;
 
-    mutable std::mutex   result_mutex_;
-    AnalysisResult       last_result_;
+  mutable std::mutex result_mutex_;
+  AnalysisResult last_result_;
 
-    EventCallback        event_cb_;
+  EventCallback event_cb_;
 
-    // Timing for rate control
-    double last_analyze_time_ = 0.0;  // seconds since epoch
+  // Timing for rate control
+  double last_analyze_time_ = 0.0;  // seconds since epoch
 
-    AnalysisResult RunAnalysis(const cv::Mat& frame);
-    static double  NowSeconds();
+  AnalysisResult RunAnalysis(const cv::Mat& frame);
+  static double NowSeconds();
 };
 
 }  // namespace streamsight::ai
 
-#endif // STREAMSIGHT_AI_FRAME_ANALYZER_H
+#endif  // STREAMSIGHT_AI_FRAME_ANALYZER_H

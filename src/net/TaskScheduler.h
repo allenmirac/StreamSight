@@ -4,65 +4,63 @@
 
 #include <atomic>
 #include <cstdint>
+
 #include "Channel.h"
 #include "Pipe.h"
-#include "Timer.h"
 #include "RingBuffer.h"
+#include "Timer.h"
 
 namespace streamsight::net {
 
 typedef std::function<void(void)> TriggerEvent;
 
-class TaskScheduler 
-{
-public:
-	TaskScheduler(int id=1);
-	virtual ~TaskScheduler();
+class TaskScheduler {
+ public:
+  TaskScheduler(int id = 1);
+  virtual ~TaskScheduler();
 
-	void Start();
-	void Stop();
-	TimerId AddTimer(TimerEvent timerEvent, uint32_t msec);
-	void RemoveTimer(TimerId timerId);
-	bool AddTriggerEvent(TriggerEvent callback);
+  void Start();
+  void Stop();
+  TimerId AddTimer(TimerEvent timerEvent, uint32_t msec);
+  void RemoveTimer(TimerId timerId);
+  bool AddTriggerEvent(TriggerEvent callback);
 
-	virtual void UpdateChannel(ChannelPtr channel) { };
-	virtual void RemoveChannel(ChannelPtr& channel) { };
-	virtual bool HandleEvent(int timeout) { return false; };
+  virtual void UpdateChannel(ChannelPtr channel){};
+  virtual void RemoveChannel(ChannelPtr& channel){};
+  virtual bool HandleEvent(int timeout) { return false; };
 
-	int GetId() const 
-	{ return id_; }
+  int GetId() const { return id_; }
 
-protected:
-	void Wake();
-	void HandleTriggerEvent();
+ protected:
+  void Wake();
+  void HandleTriggerEvent();
 
-	int id_ = 0;
-	std::atomic_bool is_shutdown_;
-	std::unique_ptr<Pipe> wakeup_pipe_;
-	std::shared_ptr<Channel> wakeup_channel_;
-	std::unique_ptr<streamsight::net::RingBuffer<TriggerEvent>> trigger_events_;
+  int id_ = 0;
+  std::atomic_bool is_shutdown_;
+  std::unique_ptr<Pipe> wakeup_pipe_;
+  std::shared_ptr<Channel> wakeup_channel_;
+  std::unique_ptr<streamsight::net::RingBuffer<TriggerEvent>> trigger_events_;
 
-protected:
-	std::atomic<int64_t> loop_count_{0};
-	std::atomic<int64_t> total_loop_us_{0};
+ protected:
+  std::atomic<int64_t> loop_count_{0};
+  std::atomic<int64_t> total_loop_us_{0};
 
-public:
-	int64_t GetLoopCount() const { return loop_count_.load(); }
-	int64_t GetTotalLoopUs() const { return total_loop_us_.load(); }
-	double  GetAvgLoopUs() const {
-		int64_t n = loop_count_.load();
-		return n > 0 ? (double)total_loop_us_.load() / n : 0.0;
-	}
+ public:
+  int64_t GetLoopCount() const { return loop_count_.load(); }
+  int64_t GetTotalLoopUs() const { return total_loop_us_.load(); }
+  double GetAvgLoopUs() const {
+    int64_t n = loop_count_.load();
+    return n > 0 ? (double)total_loop_us_.load() / n : 0.0;
+  }
 
-protected:
-	std::mutex mutex_;
-	TimerQueue timer_queue_;
+ protected:
+  std::mutex mutex_;
+  TimerQueue timer_queue_;
 
-	static const char kTriggetEvent = 1;
-	static const char kTimerEvent = 2;
-	static const int  kMaxTriggetEvents = 50000;
+  static const char kTriggetEvent = 1;
+  static const char kTimerEvent = 2;
+  static const int kMaxTriggetEvents = 50000;
 };
 
 }  // namespace streamsight::net
-#endif  
-
+#endif

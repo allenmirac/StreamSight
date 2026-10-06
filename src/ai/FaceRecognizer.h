@@ -7,10 +7,10 @@
 #ifndef STREAMSIGHT_AI_FACE_RECOGNIZER_H
 #define STREAMSIGHT_AI_FACE_RECOGNIZER_H
 
-#include <opencv2/opencv.hpp>
 #include <opencv2/dnn.hpp>
-#include <vector>
+#include <opencv2/opencv.hpp>
 #include <string>
+#include <vector>
 
 namespace streamsight::ai {
 
@@ -23,51 +23,52 @@ namespace streamsight::ai {
  *   auto embedding = rec.Extract(face_crop);
  */
 class FaceRecognizer {
-public:
-    /** Input size expected by ArcFace: 112×112 */
-    static constexpr int kInputSize = 112;
+ public:
+  /** Input size expected by ArcFace: 112×112 */
+  static constexpr int kInputSize = 112;
 
-    /**
-     * @param model_path  Path to ArcFace ONNX model.
-     */
-    explicit FaceRecognizer(const std::string& model_path);
+  /**
+   * @param model_path  Path to ArcFace ONNX model.
+   */
+  explicit FaceRecognizer(const std::string& model_path);
 
-    /** @brief Load model. Must call before Extract(). */
-    bool Load();
+  /** @brief Load model. Must call before Extract(). */
+  bool Load();
 
-    /**
-     * @brief Extract face embedding from a BGR face-crop.
-     * @param face  BGR face image (any size; will be resized to 112×112).
-     * @return 512-D float vector (L2-normalized), or empty on failure.
-     */
-    std::vector<float> Extract(const cv::Mat& face);
+  /**
+   * @brief Extract face embedding from a BGR face-crop.
+   * @param face  BGR face image (any size; will be resized to 112×112).
+   * @return 512-D float vector (L2-normalized), or empty on failure.
+   */
+  std::vector<float> Extract(const cv::Mat& face);
 
-    /**
-     * @brief Extract embeddings for many face crops in one batched forward
-     *        pass (substantially cheaper than one forward pass per face).
-     * @param faces  BGR face crops (any sizes; each resized to 112×112).
-     * @return One 512-D embedding per input, in input order; empty entries
-     *         mark empty/failed inputs.
-     */
-    std::vector<std::vector<float>> ExtractBatch(const std::vector<cv::Mat>& faces);
+  /**
+   * @brief Extract embeddings for many face crops in one batched forward
+   *        pass (substantially cheaper than one forward pass per face).
+   * @param faces  BGR face crops (any sizes; each resized to 112×112).
+   * @return One 512-D embedding per input, in input order; empty entries
+   *         mark empty/failed inputs.
+   */
+  std::vector<std::vector<float>> ExtractBatch(
+      const std::vector<cv::Mat>& faces);
 
-    /**
-     * @brief Cosine similarity between two L2-normalized embeddings.
-     * @return Similarity in [-1, 1]; typically 0.3–0.5 is same person.
-     */
-    static float Similarity(const std::vector<float>& a,
-                             const std::vector<float>& b);
+  /**
+   * @brief Cosine similarity between two L2-normalized embeddings.
+   * @return Similarity in [-1, 1]; typically 0.3–0.5 is same person.
+   */
+  static float Similarity(const std::vector<float>& a,
+                          const std::vector<float>& b);
 
-    bool IsLoaded() const { return loaded_; }
+  bool IsLoaded() const { return loaded_; }
 
-private:
-    std::string  model_path_;
-    bool         loaded_ = false;
-    cv::dnn::Net net_;
+ private:
+  std::string model_path_;
+  bool loaded_ = false;
+  cv::dnn::Net net_;
 
-    static void L2Normalize(std::vector<float>& v);
+  static void L2Normalize(std::vector<float>& v);
 };
 
 }  // namespace streamsight::ai
 
-#endif // STREAMSIGHT_AI_FACE_RECOGNIZER_H
+#endif  // STREAMSIGHT_AI_FACE_RECOGNIZER_H

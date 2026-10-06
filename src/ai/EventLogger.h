@@ -7,10 +7,11 @@
 #ifndef STREAMSIGHT_AI_EVENT_LOGGER_H
 #define STREAMSIGHT_AI_EVENT_LOGGER_H
 
-#include "FrameAnalyzer.h"
-#include <string>
-#include <mutex>
 #include <fstream>
+#include <mutex>
+#include <string>
+
+#include "FrameAnalyzer.h"
 
 namespace streamsight::ai {
 
@@ -31,34 +32,35 @@ namespace streamsight::ai {
  *   });
  */
 class EventLogger {
-public:
-    /**
-     * @param log_path  Path to output .jsonl file (appended if exists).
-     * @param min_faces Only write events with at least this many faces (default 1).
-     */
-    explicit EventLogger(const std::string& log_path = "events.jsonl",
-                         int min_faces = 1);
-    ~EventLogger();
+ public:
+  /**
+   * @param log_path  Path to output .jsonl file (appended if exists).
+   * @param min_faces Only write events with at least this many faces (default
+   * 1).
+   */
+  explicit EventLogger(const std::string& log_path = "events.jsonl",
+                       int min_faces = 1);
+  ~EventLogger();
 
-    /** @brief Open log file for writing. */
-    bool Open();
+  /** @brief Open log file for writing. */
+  bool Open();
 
-    /** @brief Close log file. */
-    void Close();
+  /** @brief Close log file. */
+  void Close();
 
-    /**
-     * @brief Append one analysis result to the log.
-     * Skipped if no faces detected (when min_faces > 0).
-     */
-    void Log(const AnalysisResult& result);
+  /**
+   * @brief Append one analysis result to the log.
+   * Skipped if no faces detected (when min_faces > 0).
+   */
+  void Log(const AnalysisResult& result);
 
-private:
-    std::string        log_path_;
-    int                min_faces_;
-    mutable std::mutex mutex_;
-    std::ofstream      file_;
+ private:
+  std::string log_path_;
+  int min_faces_;
+  mutable std::mutex mutex_;
+  std::ofstream file_;
 };
 
 }  // namespace streamsight::ai
 
-#endif // STREAMSIGHT_AI_EVENT_LOGGER_H
+#endif  // STREAMSIGHT_AI_EVENT_LOGGER_H

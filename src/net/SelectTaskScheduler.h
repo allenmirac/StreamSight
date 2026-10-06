@@ -2,42 +2,42 @@
 #ifndef STREAMSIGHT_NET_SELECT_TASK_SCHEDULER_H
 #define STREAMSIGHT_NET_SELECT_TASK_SCHEDULER_H
 
-#include "TaskScheduler.h"
-#include "Socket.h"
 #include <mutex>
 #include <unordered_map>
 
-#if defined(__linux) || defined(__linux__) 
+#include "Socket.h"
+#include "TaskScheduler.h"
+
+#if defined(__linux) || defined(__linux__)
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
 
-namespace streamsight::net {	
+namespace streamsight::net {
 
-class SelectTaskScheduler : public TaskScheduler
-{
-public:
-	SelectTaskScheduler(int id = 0);
-	virtual ~SelectTaskScheduler();
+class SelectTaskScheduler : public TaskScheduler {
+ public:
+  SelectTaskScheduler(int id = 0);
+  virtual ~SelectTaskScheduler();
 
-	void UpdateChannel(ChannelPtr channel);
-	void RemoveChannel(ChannelPtr& channel);
-	bool HandleEvent(int timeout);
-	
-private:
-	fd_set fd_read_backup_;
-	fd_set fd_write_backup_;
-	fd_set fd_exp_backup_;
-	SOCKET maxfd_ = 0;
+  void UpdateChannel(ChannelPtr channel);
+  void RemoveChannel(ChannelPtr& channel);
+  bool HandleEvent(int timeout);
 
-	bool is_fd_read_reset_ = false;
-	bool is_fd_write_reset_ = false;
-	bool is_fd_exp_reset_ = false;
+ private:
+  fd_set fd_read_backup_;
+  fd_set fd_write_backup_;
+  fd_set fd_exp_backup_;
+  SOCKET maxfd_ = 0;
 
-	std::mutex mutex_;
-	std::unordered_map<SOCKET, ChannelPtr> channels_;
+  bool is_fd_read_reset_ = false;
+  bool is_fd_write_reset_ = false;
+  bool is_fd_exp_reset_ = false;
+
+  std::mutex mutex_;
+  std::unordered_map<SOCKET, ChannelPtr> channels_;
 };
 
 }  // namespace streamsight::net

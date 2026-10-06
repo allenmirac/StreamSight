@@ -2,37 +2,37 @@
 #ifndef STREAMSIGHT_NET_SOCKET_H
 #define STREAMSIGHT_NET_SOCKET_H
 
-#if defined(__linux) || defined(__linux__) 
-#include <sys/types.h>         
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <netinet/in.h> 
-#include <netinet/ether.h>   
-#include <netinet/ip.h>  
-#include <netpacket/packet.h>   
+#if defined(__linux) || defined(__linux__)
 #include <arpa/inet.h>
-#include <net/ethernet.h>   
-#include <net/route.h>  
-#include <netdb.h>
-#include <net/if.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <net/ethernet.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netdb.h>
+#include <netinet/ether.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netpacket/packet.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 #define SOCKET int
-#define INVALID_SOCKET  (-1)
-#define SOCKET_ERROR    (-1) 
+#define INVALID_SOCKET (-1)
+#define SOCKET_ERROR (-1)
 
-#elif defined(WIN32) || defined(_WIN32) 
-#define FD_SETSIZE      1024
+#elif defined(WIN32) || defined(_WIN32)
+#define FD_SETSIZE 1024
 #define WIN32_LEAN_AND_MEAN
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <WinSock2.h>
+#include <iphlpapi.h>
 #include <windows.h>
 #include <ws2tcpip.h>
-#include <iphlpapi.h>
 #define SHUT_RD 0
-#define SHUT_WR 1 
+#define SHUT_WR 1
 #define SHUT_RDWR 2
 
 #else
@@ -42,4 +42,4 @@
 #include <cstdint>
 #include <cstring>
 
-#endif // STREAMSIGHT_NET_SOCKET_H
+#endif  // STREAMSIGHT_NET_SOCKET_H

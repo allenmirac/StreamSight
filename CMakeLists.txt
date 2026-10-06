@@ -31,7 +31,7 @@ set(INC_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ffmpeg
     ${CMAKE_CURRENT_SOURCE_DIR}/src/effect
     ${CMAKE_CURRENT_SOURCE_DIR}/src/api
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/3rdpart
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
 )
 include_directories(${INC_DIRS})
 

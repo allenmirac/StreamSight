@@ -1,6 +1,7 @@
 #include "RtpConnection.h"
-#include "RtspConnection.h"
+
 #include "RtcpMessage.h"
+#include "RtspConnection.h"
 #include "net/SocketUtil.h"
 #include "observe/LatencyTracer.h"
 
@@ -12,367 +13,369 @@ using namespace streamsight::net;
 static const uint32_t kRtcpIntervalMs = 5000;
 
 RtpConnection::RtpConnection(std::weak_ptr<TcpConnection> rtsp_connection)
-    : rtsp_connection_(rtsp_connection)
-{
-	std::random_device rd;
+    : rtsp_connection_(rtsp_connection) {
+  std::random_device rd;
 
-	for(int chn=0; chn<MAX_MEDIA_CHANNEL; chn++) {
-		rtpfd_[chn] = 0;
-		rtcpfd_[chn] = 0;
-		memset(&media_channel_info_[chn], 0, sizeof(media_channel_info_[chn]));
-		media_channel_info_[chn].rtp_header.version = RTP_VERSION;
-		media_channel_info_[chn].packet_seq = rd()&0xffff;
-		media_channel_info_[chn].rtp_header.seq = 0; //htons(1);
-		media_channel_info_[chn].rtp_header.ts = htonl(rd());
-		media_channel_info_[chn].rtp_header.ssrc = htonl(rd());
-	}
+  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+    rtpfd_[chn] = 0;
+    rtcpfd_[chn] = 0;
+    memset(&media_channel_info_[chn], 0, sizeof(media_channel_info_[chn]));
+    media_channel_info_[chn].rtp_header.version = RTP_VERSION;
+    media_channel_info_[chn].packet_seq = rd() & 0xffff;
+    media_channel_info_[chn].rtp_header.seq = 0;  // htons(1);
+    media_channel_info_[chn].rtp_header.ts = htonl(rd());
+    media_channel_info_[chn].rtp_header.ssrc = htonl(rd());
+  }
 
-	auto conn = rtsp_connection_.lock();
-	rtsp_ip_ = conn->GetIp();
-	rtsp_port_ = conn->GetPort();
+  auto conn = rtsp_connection_.lock();
+  rtsp_ip_ = conn->GetIp();
+  rtsp_port_ = conn->GetPort();
 }
 
-RtpConnection::~RtpConnection()
-{
-	StopRtcpTimer();
+RtpConnection::~RtpConnection() {
+  StopRtcpTimer();
 
-	for(int chn=0; chn<MAX_MEDIA_CHANNEL; chn++) {
-		if(rtpfd_[chn] > 0) {
-			SocketUtil::Close(rtpfd_[chn]);
-		}
-
-		if(rtcpfd_[chn] > 0) {
-			SocketUtil::Close(rtcpfd_[chn]);
-		}
-	}
-}
-
-int RtpConnection::GetId() const
-{
-	auto conn = rtsp_connection_.lock();
-	if (!conn) {
-		return -1;
-	}
-	RtspConnection *rtspConn = (RtspConnection *)conn.get();
-	return rtspConn->GetId();
-}
-
-bool RtpConnection::SetupRtpOverTcp(MediaChannelId channel_id, uint16_t rtp_channel, uint16_t rtcp_channel)
-{
-	auto conn = rtsp_connection_.lock();
-	if (!conn) {
-		return false;
-	}
-
-	media_channel_info_[channel_id].rtp_channel = rtp_channel;
-	media_channel_info_[channel_id].rtcp_channel = rtcp_channel;
-	rtpfd_[channel_id] = conn->GetSocket();
-	rtcpfd_[channel_id] = conn->GetSocket();
-	media_channel_info_[channel_id].is_setup = true;
-	transport_mode_ = RTP_OVER_TCP;
-
-	return true;
-}
-
-bool RtpConnection::SetupRtpOverUdp(MediaChannelId channel_id, uint16_t rtp_port, uint16_t rtcp_port)
-{
-	auto conn = rtsp_connection_.lock();
-	if (!conn) {
-		return false;
-	}
-
-	if(SocketUtil::GetPeerAddr(conn->GetSocket(), &peer_addr_) < 0) {
-		return false;
-	}
-
-	media_channel_info_[channel_id].rtp_port = rtp_port;
-	media_channel_info_[channel_id].rtcp_port = rtcp_port;
-
-	std::random_device rd;
-	for (int n = 0; n <= 10; n++) {
-		if (n == 10) {
-			return false;
-		}
-
-		local_rtp_port_[channel_id] = rd() & 0xfffe;
-		local_rtcp_port_[channel_id] =local_rtp_port_[channel_id] + 1;
-
-		rtpfd_[channel_id] = ::socket(AF_INET, SOCK_DGRAM, 0);
-		if(!SocketUtil::Bind(rtpfd_[channel_id], "0.0.0.0",  local_rtp_port_[channel_id])) {
-			SocketUtil::Close(rtpfd_[channel_id]);
-			continue;
-		}
-
-		rtcpfd_[channel_id] = ::socket(AF_INET, SOCK_DGRAM, 0);
-		if(!SocketUtil::Bind(rtcpfd_[channel_id], "0.0.0.0", local_rtcp_port_[channel_id])) {
-			SocketUtil::Close(rtpfd_[channel_id]);
-			SocketUtil::Close(rtcpfd_[channel_id]);
-			continue;
-		}
-
-		break;
-	}
-
-	SocketUtil::SetSendBufSize(rtpfd_[channel_id], 50*1024);
-
-	peer_rtp_addr_[channel_id].sin_family = AF_INET;
-	peer_rtp_addr_[channel_id].sin_addr.s_addr = peer_addr_.sin_addr.s_addr;
-	peer_rtp_addr_[channel_id].sin_port = htons(media_channel_info_[channel_id].rtp_port);
-
-	peer_rtcp_sddr_[channel_id].sin_family = AF_INET;
-	peer_rtcp_sddr_[channel_id].sin_addr.s_addr = peer_addr_.sin_addr.s_addr;
-	peer_rtcp_sddr_[channel_id].sin_port = htons(media_channel_info_[channel_id].rtcp_port);
-
-	media_channel_info_[channel_id].is_setup = true;
-	transport_mode_ = RTP_OVER_UDP;
-
-	return true;
-}
-
-bool RtpConnection::SetupRtpOverMulticast(MediaChannelId channel_id, std::string ip, uint16_t port)
-{
-    std::random_device rd;
-    for (int n = 0; n <= 10; n++) {
-		if (n == 10) {
-			return false;
-		}
-
-		local_rtp_port_[channel_id] = rd() & 0xfffe;
-		rtpfd_[channel_id] = ::socket(AF_INET, SOCK_DGRAM, 0);
-		if (!SocketUtil::Bind(rtpfd_[channel_id], "0.0.0.0", local_rtp_port_[channel_id])) {
-			SocketUtil::Close(rtpfd_[channel_id]);
-			continue;
-		}
-
-		break;
+  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+    if (rtpfd_[chn] > 0) {
+      SocketUtil::Close(rtpfd_[chn]);
     }
 
-	media_channel_info_[channel_id].rtp_port = port;
-
-	peer_rtp_addr_[channel_id].sin_family = AF_INET;
-	peer_rtp_addr_[channel_id].sin_addr.s_addr = inet_addr(ip.c_str());
-	peer_rtp_addr_[channel_id].sin_port = htons(port);
-
-	media_channel_info_[channel_id].is_setup = true;
-	transport_mode_ = RTP_OVER_MULTICAST;
-	is_multicast_ = true;
-	return true;
+    if (rtcpfd_[chn] > 0) {
+      SocketUtil::Close(rtcpfd_[chn]);
+    }
+  }
 }
 
-void RtpConnection::Play()
-{
-	for(int chn=0; chn<MAX_MEDIA_CHANNEL; chn++) {
-		if (media_channel_info_[chn].is_setup) {
-			media_channel_info_[chn].is_play = true;
-		}
-	}
-	StartRtcpTimer();
+int RtpConnection::GetId() const {
+  auto conn = rtsp_connection_.lock();
+  if (!conn) {
+    return -1;
+  }
+  RtspConnection* rtspConn = (RtspConnection*)conn.get();
+  return rtspConn->GetId();
 }
 
-void RtpConnection::Record()
-{
-	for (int chn=0; chn<MAX_MEDIA_CHANNEL; chn++) {
-		if (media_channel_info_[chn].is_setup) {
-			media_channel_info_[chn].is_record = true;
-			media_channel_info_[chn].is_play = true;
-		}
-	}
-	StartRtcpTimer();
+bool RtpConnection::SetupRtpOverTcp(MediaChannelId channel_id,
+                                    uint16_t rtp_channel,
+                                    uint16_t rtcp_channel) {
+  auto conn = rtsp_connection_.lock();
+  if (!conn) {
+    return false;
+  }
+
+  media_channel_info_[channel_id].rtp_channel = rtp_channel;
+  media_channel_info_[channel_id].rtcp_channel = rtcp_channel;
+  rtpfd_[channel_id] = conn->GetSocket();
+  rtcpfd_[channel_id] = conn->GetSocket();
+  media_channel_info_[channel_id].is_setup = true;
+  transport_mode_ = RTP_OVER_TCP;
+
+  return true;
 }
 
-void RtpConnection::Teardown()
-{
-	if(!is_closed_) {
-		is_closed_ = true;
-		StopRtcpTimer();
-		for(int chn=0; chn<MAX_MEDIA_CHANNEL; chn++) {
-			media_channel_info_[chn].is_play = false;
-			media_channel_info_[chn].is_record = false;
-		}
-	}
+bool RtpConnection::SetupRtpOverUdp(MediaChannelId channel_id,
+                                    uint16_t rtp_port, uint16_t rtcp_port) {
+  auto conn = rtsp_connection_.lock();
+  if (!conn) {
+    return false;
+  }
+
+  if (SocketUtil::GetPeerAddr(conn->GetSocket(), &peer_addr_) < 0) {
+    return false;
+  }
+
+  media_channel_info_[channel_id].rtp_port = rtp_port;
+  media_channel_info_[channel_id].rtcp_port = rtcp_port;
+
+  std::random_device rd;
+  for (int n = 0; n <= 10; n++) {
+    if (n == 10) {
+      return false;
+    }
+
+    local_rtp_port_[channel_id] = rd() & 0xfffe;
+    local_rtcp_port_[channel_id] = local_rtp_port_[channel_id] + 1;
+
+    rtpfd_[channel_id] = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (!SocketUtil::Bind(rtpfd_[channel_id], "0.0.0.0",
+                          local_rtp_port_[channel_id])) {
+      SocketUtil::Close(rtpfd_[channel_id]);
+      continue;
+    }
+
+    rtcpfd_[channel_id] = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (!SocketUtil::Bind(rtcpfd_[channel_id], "0.0.0.0",
+                          local_rtcp_port_[channel_id])) {
+      SocketUtil::Close(rtpfd_[channel_id]);
+      SocketUtil::Close(rtcpfd_[channel_id]);
+      continue;
+    }
+
+    break;
+  }
+
+  SocketUtil::SetSendBufSize(rtpfd_[channel_id], 50 * 1024);
+
+  peer_rtp_addr_[channel_id].sin_family = AF_INET;
+  peer_rtp_addr_[channel_id].sin_addr.s_addr = peer_addr_.sin_addr.s_addr;
+  peer_rtp_addr_[channel_id].sin_port =
+      htons(media_channel_info_[channel_id].rtp_port);
+
+  peer_rtcp_sddr_[channel_id].sin_family = AF_INET;
+  peer_rtcp_sddr_[channel_id].sin_addr.s_addr = peer_addr_.sin_addr.s_addr;
+  peer_rtcp_sddr_[channel_id].sin_port =
+      htons(media_channel_info_[channel_id].rtcp_port);
+
+  media_channel_info_[channel_id].is_setup = true;
+  transport_mode_ = RTP_OVER_UDP;
+
+  return true;
 }
 
-string RtpConnection::GetMulticastIp(MediaChannelId channel_id) const
-{
-	return std::string(inet_ntoa(peer_rtp_addr_[channel_id].sin_addr));
+bool RtpConnection::SetupRtpOverMulticast(MediaChannelId channel_id,
+                                          std::string ip, uint16_t port) {
+  std::random_device rd;
+  for (int n = 0; n <= 10; n++) {
+    if (n == 10) {
+      return false;
+    }
+
+    local_rtp_port_[channel_id] = rd() & 0xfffe;
+    rtpfd_[channel_id] = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (!SocketUtil::Bind(rtpfd_[channel_id], "0.0.0.0",
+                          local_rtp_port_[channel_id])) {
+      SocketUtil::Close(rtpfd_[channel_id]);
+      continue;
+    }
+
+    break;
+  }
+
+  media_channel_info_[channel_id].rtp_port = port;
+
+  peer_rtp_addr_[channel_id].sin_family = AF_INET;
+  peer_rtp_addr_[channel_id].sin_addr.s_addr = inet_addr(ip.c_str());
+  peer_rtp_addr_[channel_id].sin_port = htons(port);
+
+  media_channel_info_[channel_id].is_setup = true;
+  transport_mode_ = RTP_OVER_MULTICAST;
+  is_multicast_ = true;
+  return true;
 }
 
-string RtpConnection::GetRtpInfo(const std::string& rtsp_url)
-{
-	char buf[2048] = { 0 };
-	snprintf(buf, 1024, "RTP-Info: ");
-
-	int num_channel = 0;
-
-	auto time_point = chrono::time_point_cast<chrono::milliseconds>(chrono::steady_clock::now());
-	auto ts = time_point.time_since_epoch().count();
-	for (int chn = 0; chn<MAX_MEDIA_CHANNEL; chn++) {
-		uint32_t rtpTime = (uint32_t)(ts*media_channel_info_[chn].clock_rate / 1000);
-		if (media_channel_info_[chn].is_setup) {
-			if (num_channel != 0) {
-				snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), ",");
-			}
-
-			snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
-					"url=%s/track%d;seq=0;rtptime=%u",
-					rtsp_url.c_str(), chn, rtpTime);
-			num_channel++;
-		}
-	}
-
-	return std::string(buf);
+void RtpConnection::Play() {
+  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+    if (media_channel_info_[chn].is_setup) {
+      media_channel_info_[chn].is_play = true;
+    }
+  }
+  StartRtcpTimer();
 }
 
-void RtpConnection::SetFrameType(uint8_t frame_type)
-{
-	frame_type_ = frame_type;
-	if(!has_key_frame_ && (frame_type == 0 || frame_type == VIDEO_FRAME_I
-	                        || frame_type == AUDIO_FRAME)) {
-		has_key_frame_ = true;
-	}
+void RtpConnection::Record() {
+  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+    if (media_channel_info_[chn].is_setup) {
+      media_channel_info_[chn].is_record = true;
+      media_channel_info_[chn].is_play = true;
+    }
+  }
+  StartRtcpTimer();
 }
 
-void RtpConnection::SetRtpHeader(MediaChannelId channel_id, RtpPacket pkt)
-{
-	if((media_channel_info_[channel_id].is_play || media_channel_info_[channel_id].is_record) && has_key_frame_) {
-		media_channel_info_[channel_id].rtp_header.marker = pkt.last;
-		media_channel_info_[channel_id].rtp_header.ts = htonl(pkt.timestamp);
-		media_channel_info_[channel_id].rtp_header.seq = htons(media_channel_info_[channel_id].packet_seq++);
-		memcpy(pkt.data.get()+4, &media_channel_info_[channel_id].rtp_header, RTP_HEADER_SIZE);
-	}
+void RtpConnection::Teardown() {
+  if (!is_closed_) {
+    is_closed_ = true;
+    StopRtcpTimer();
+    for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+      media_channel_info_[chn].is_play = false;
+      media_channel_info_[chn].is_record = false;
+    }
+  }
 }
 
-int RtpConnection::SendRtpPacket(MediaChannelId channel_id, RtpPacket pkt)
-{
-	if (is_closed_) {
-		return -1;
-	}
-
-	auto conn = rtsp_connection_.lock();
-	if (!conn) {
-		return -1;
-	}
-
-	RtspConnection *rtsp_conn = (RtspConnection *)conn.get();
-
-	bool ret = rtsp_conn->task_scheduler_->AddTriggerEvent([this, channel_id, pkt] {
-		this->SetFrameType(pkt.type);
-		this->SetRtpHeader(channel_id, pkt);
-		if((media_channel_info_[channel_id].is_play || media_channel_info_[channel_id].is_record) && has_key_frame_ ) {
-			if(transport_mode_ == RTP_OVER_TCP) {
-				SendRtpOverTcp(channel_id, pkt);
-			}
-			else {
-				SendRtpOverUdp(channel_id, pkt);
-			}
-
-			media_channel_info_[channel_id].octet_count  += (pkt.size - 4);  // payload only
-			media_channel_info_[channel_id].packet_count += 1;
-		}
-	});
-
-	return ret ? 0 : -1;
+string RtpConnection::GetMulticastIp(MediaChannelId channel_id) const {
+  return std::string(inet_ntoa(peer_rtp_addr_[channel_id].sin_addr));
 }
 
-int RtpConnection::SendRtpOverTcp(MediaChannelId channel_id, RtpPacket pkt)
-{
-	auto conn = rtsp_connection_.lock();
-	if (!conn) {
-		return -1;
-	}
+string RtpConnection::GetRtpInfo(const std::string& rtsp_url) {
+  char buf[2048] = {0};
+  snprintf(buf, 1024, "RTP-Info: ");
 
-	uint8_t* rtpPktPtr = pkt.data.get();
-	rtpPktPtr[0] = '$';
-	rtpPktPtr[1] = (char)media_channel_info_[channel_id].rtp_channel;
-	rtpPktPtr[2] = (char)(((pkt.size-4)&0xFF00)>>8);
-	rtpPktPtr[3] = (char)((pkt.size -4)&0xFF);
+  int num_channel = 0;
 
-	conn->Send((char*)rtpPktPtr, pkt.size);
-	return pkt.size;
+  auto time_point = chrono::time_point_cast<chrono::milliseconds>(
+      chrono::steady_clock::now());
+  auto ts = time_point.time_since_epoch().count();
+  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+    uint32_t rtpTime =
+        (uint32_t)(ts * media_channel_info_[chn].clock_rate / 1000);
+    if (media_channel_info_[chn].is_setup) {
+      if (num_channel != 0) {
+        snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), ",");
+      }
+
+      snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+               "url=%s/track%d;seq=0;rtptime=%u", rtsp_url.c_str(), chn,
+               rtpTime);
+      num_channel++;
+    }
+  }
+
+  return std::string(buf);
 }
 
-int RtpConnection::SendRtpOverUdp(MediaChannelId channel_id, RtpPacket pkt)
-{
-    STREAMSIGHT_LATENCY_SCOPE("rtsp", "rtp_send");
-	int ret = sendto(rtpfd_[channel_id], (const char*)pkt.data.get()+4, pkt.size-4, 0,
-					(struct sockaddr *)&(peer_rtp_addr_[channel_id]), sizeof(struct sockaddr_in));
+void RtpConnection::SetFrameType(uint8_t frame_type) {
+  frame_type_ = frame_type;
+  if (!has_key_frame_ && (frame_type == 0 || frame_type == VIDEO_FRAME_I ||
+                          frame_type == AUDIO_FRAME)) {
+    has_key_frame_ = true;
+  }
+}
 
-	if(ret < 0) {
-		Teardown();
-		return -1;
-	}
+void RtpConnection::SetRtpHeader(MediaChannelId channel_id, RtpPacket pkt) {
+  if ((media_channel_info_[channel_id].is_play ||
+       media_channel_info_[channel_id].is_record) &&
+      has_key_frame_) {
+    media_channel_info_[channel_id].rtp_header.marker = pkt.last;
+    media_channel_info_[channel_id].rtp_header.ts = htonl(pkt.timestamp);
+    media_channel_info_[channel_id].rtp_header.seq =
+        htons(media_channel_info_[channel_id].packet_seq++);
+    memcpy(pkt.data.get() + 4, &media_channel_info_[channel_id].rtp_header,
+           RTP_HEADER_SIZE);
+  }
+}
 
-	return ret;
+int RtpConnection::SendRtpPacket(MediaChannelId channel_id, RtpPacket pkt) {
+  if (is_closed_) {
+    return -1;
+  }
+
+  auto conn = rtsp_connection_.lock();
+  if (!conn) {
+    return -1;
+  }
+
+  RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
+
+  bool ret =
+      rtsp_conn->task_scheduler_->AddTriggerEvent([this, channel_id, pkt] {
+        this->SetFrameType(pkt.type);
+        this->SetRtpHeader(channel_id, pkt);
+        if ((media_channel_info_[channel_id].is_play ||
+             media_channel_info_[channel_id].is_record) &&
+            has_key_frame_) {
+          if (transport_mode_ == RTP_OVER_TCP) {
+            SendRtpOverTcp(channel_id, pkt);
+          } else {
+            SendRtpOverUdp(channel_id, pkt);
+          }
+
+          media_channel_info_[channel_id].octet_count +=
+              (pkt.size - 4);  // payload only
+          media_channel_info_[channel_id].packet_count += 1;
+        }
+      });
+
+  return ret ? 0 : -1;
+}
+
+int RtpConnection::SendRtpOverTcp(MediaChannelId channel_id, RtpPacket pkt) {
+  auto conn = rtsp_connection_.lock();
+  if (!conn) {
+    return -1;
+  }
+
+  uint8_t* rtpPktPtr = pkt.data.get();
+  rtpPktPtr[0] = '$';
+  rtpPktPtr[1] = (char)media_channel_info_[channel_id].rtp_channel;
+  rtpPktPtr[2] = (char)(((pkt.size - 4) & 0xFF00) >> 8);
+  rtpPktPtr[3] = (char)((pkt.size - 4) & 0xFF);
+
+  conn->Send((char*)rtpPktPtr, pkt.size);
+  return pkt.size;
+}
+
+int RtpConnection::SendRtpOverUdp(MediaChannelId channel_id, RtpPacket pkt) {
+  STREAMSIGHT_LATENCY_SCOPE("rtsp", "rtp_send");
+  int ret =
+      sendto(rtpfd_[channel_id], (const char*)pkt.data.get() + 4, pkt.size - 4,
+             0, (struct sockaddr*)&(peer_rtp_addr_[channel_id]),
+             sizeof(struct sockaddr_in));
+
+  if (ret < 0) {
+    Teardown();
+    return -1;
+  }
+
+  return ret;
 }
 
 // ─── RTCP Sender Report ──────────────────────────────────────────────────
 
-void RtpConnection::StartRtcpTimer()
-{
-	if (rtcp_timer_id_ != 0) return;  // already running
+void RtpConnection::StartRtcpTimer() {
+  if (rtcp_timer_id_ != 0) return;  // already running
 
-	auto conn = rtsp_connection_.lock();
-	if (!conn) return;
+  auto conn = rtsp_connection_.lock();
+  if (!conn) return;
 
-	RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
+  RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
 
-	// Periodic timer: fire every kRtcpIntervalMs, repeats as long as callback returns true
-	rtcp_timer_id_ = rtsp_conn->task_scheduler_->AddTimer(
-		[this]() -> bool {
-			this->OnRtcpTimer();
-			return !this->is_closed_;  // keep repeating while alive
-		},
-		kRtcpIntervalMs);
+  // Periodic timer: fire every kRtcpIntervalMs, repeats as long as callback
+  // returns true
+  rtcp_timer_id_ = rtsp_conn->task_scheduler_->AddTimer(
+      [this]() -> bool {
+        this->OnRtcpTimer();
+        return !this->is_closed_;  // keep repeating while alive
+      },
+      kRtcpIntervalMs);
 }
 
-void RtpConnection::StopRtcpTimer()
-{
-	if (rtcp_timer_id_ == 0) return;
+void RtpConnection::StopRtcpTimer() {
+  if (rtcp_timer_id_ == 0) return;
 
-	auto conn = rtsp_connection_.lock();
-	if (conn) {
-		RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
-		rtsp_conn->task_scheduler_->RemoveTimer(rtcp_timer_id_);
-	}
-	rtcp_timer_id_ = 0;
+  auto conn = rtsp_connection_.lock();
+  if (conn) {
+    RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
+    rtsp_conn->task_scheduler_->RemoveTimer(rtcp_timer_id_);
+  }
+  rtcp_timer_id_ = 0;
 }
 
-void RtpConnection::OnRtcpTimer()
-{
-	for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
-		if (media_channel_info_[chn].is_play || media_channel_info_[chn].is_record) {
-			// Build and send RTCP SR for this channel
-			uint8_t buf[RTCP_SR_SIZE];
-			uint32_t ssrc = ntohl(media_channel_info_[chn].rtp_header.ssrc);
-			uint32_t rtp_ts = ntohl(media_channel_info_[chn].rtp_header.ts);
-			uint32_t pkt_cnt = (uint32_t)media_channel_info_[chn].packet_count;
-			uint32_t oct_cnt = (uint32_t)media_channel_info_[chn].octet_count;
+void RtpConnection::OnRtcpTimer() {
+  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+    if (media_channel_info_[chn].is_play ||
+        media_channel_info_[chn].is_record) {
+      // Build and send RTCP SR for this channel
+      uint8_t buf[RTCP_SR_SIZE];
+      uint32_t ssrc = ntohl(media_channel_info_[chn].rtp_header.ssrc);
+      uint32_t rtp_ts = ntohl(media_channel_info_[chn].rtp_header.ts);
+      uint32_t pkt_cnt = (uint32_t)media_channel_info_[chn].packet_count;
+      uint32_t oct_cnt = (uint32_t)media_channel_info_[chn].octet_count;
 
-			BuildRtcpSR(buf, ssrc, rtp_ts, pkt_cnt, oct_cnt);
+      BuildRtcpSR(buf, ssrc, rtp_ts, pkt_cnt, oct_cnt);
 
-			// Send via current transport mode
-			if (transport_mode_ == RTP_OVER_TCP) {
-				auto conn = rtsp_connection_.lock();
-				if (!conn) return;
+      // Send via current transport mode
+      if (transport_mode_ == RTP_OVER_TCP) {
+        auto conn = rtsp_connection_.lock();
+        if (!conn) return;
 
-				// TCP interleaved format: $ + channel + length + RTCP data
-				uint8_t tcp_buf[4 + RTCP_SR_SIZE];
-				tcp_buf[0] = '$';
-				tcp_buf[1] = (uint8_t)media_channel_info_[chn].rtcp_channel;
-				tcp_buf[2] = (RTCP_SR_SIZE & 0xFF00) >> 8;
-				tcp_buf[3] = (RTCP_SR_SIZE & 0xFF);
-				memcpy(tcp_buf + 4, buf, RTCP_SR_SIZE);
+        // TCP interleaved format: $ + channel + length + RTCP data
+        uint8_t tcp_buf[4 + RTCP_SR_SIZE];
+        tcp_buf[0] = '$';
+        tcp_buf[1] = (uint8_t)media_channel_info_[chn].rtcp_channel;
+        tcp_buf[2] = (RTCP_SR_SIZE & 0xFF00) >> 8;
+        tcp_buf[3] = (RTCP_SR_SIZE & 0xFF);
+        memcpy(tcp_buf + 4, buf, RTCP_SR_SIZE);
 
-				conn->Send((char*)tcp_buf, 4 + RTCP_SR_SIZE);
-			}
-			else {
-				// UDP mode
-				if (rtcpfd_[chn] > 0) {
-					sendto(rtcpfd_[chn], (const char*)buf, RTCP_SR_SIZE, 0,
-					       (struct sockaddr*)&(peer_rtcp_sddr_[chn]),
-					       sizeof(struct sockaddr_in));
-				}
-			}
-		}
-	}
+        conn->Send((char*)tcp_buf, 4 + RTCP_SR_SIZE);
+      } else {
+        // UDP mode
+        if (rtcpfd_[chn] > 0) {
+          sendto(rtcpfd_[chn], (const char*)buf, RTCP_SR_SIZE, 0,
+                 (struct sockaddr*)&(peer_rtcp_sddr_[chn]),
+                 sizeof(struct sockaddr_in));
+        }
+      }
+    }
+  }
 }

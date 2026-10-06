@@ -1,19 +1,20 @@
 // FFmpegStreamer.h
-// Full FFmpeg C API pipeline: demux → decode → AI interception → encode → output.
-// Unified in-process FFmpeg C API pipeline.
-// Supports optional audio passthrough via AudioFrameCallback.
+// Full FFmpeg C API pipeline: demux → decode → AI interception → encode →
+// output. Unified in-process FFmpeg C API pipeline. Supports optional audio
+// passthrough via AudioFrameCallback.
 
 #ifndef STREAMSIGHT_FFMPEG_STREAMER_H
 #define STREAMSIGHT_FFMPEG_STREAMER_H
 
-#include "FFmpegUtils.h"
-#include "IOutputAdapter.h"
-#include "Pacer.h"
 #include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "FFmpegUtils.h"
+#include "IOutputAdapter.h"
+#include "Pacer.h"
 
 struct AVFormatContext;
 struct AVCodecContext;
@@ -34,112 +35,112 @@ using FrameInterceptor = std::function<bool(FFmpegFrame& frame)>;
 using AudioFrameCallback = std::function<void(const AVFrame* decoded_audio)>;
 
 struct StreamerConfig {
-    // ── Input ───────────────────────────────────────────────
-    std::string input_url;          // file path, v4l2:/dev/videoN, rtsp://...
-    int         open_timeout_ms    = 5000;
-    int         read_timeout_ms    = 3000;
-    bool        reconnect_on_eof   = false;
-    int         max_reconnect      = 10;
-    int         reconnect_delay_ms = 2000;
+  // ── Input ───────────────────────────────────────────────
+  std::string input_url;  // file path, v4l2:/dev/videoN, rtsp://...
+  int open_timeout_ms = 5000;
+  int read_timeout_ms = 3000;
+  bool reconnect_on_eof = false;
+  int max_reconnect = 10;
+  int reconnect_delay_ms = 2000;
 
-    // ── Processing ──────────────────────────────────────────
-    int              output_width  = 0;  // 0 = same as input
-    int              output_height = 0;
-    FrameInterceptor frame_cb;          // AI analysis + overlay
-    AudioFrameCallback audio_cb;        // decoded audio output
+  // ── Processing ──────────────────────────────────────────
+  int output_width = 0;  // 0 = same as input
+  int output_height = 0;
+  FrameInterceptor frame_cb;    // AI analysis + overlay
+  AudioFrameCallback audio_cb;  // decoded audio output
 
-    // ── Encoder ─────────────────────────────────────────────
-    std::string codec_name = "libx264";
-    std::string preset     = "ultrafast";
-    std::string tune       = "zerolatency";
-    int         bitrate    = 2000000;
-    int         fps        = 25;
-    int         gop_size   = 0;        // 0 = equal to fps
-    int         threads    = 2;        // encoder thread count
+  // ── Encoder ─────────────────────────────────────────────
+  std::string codec_name = "libx264";
+  std::string preset = "ultrafast";
+  std::string tune = "zerolatency";
+  int bitrate = 2000000;
+  int fps = 25;
+  int gop_size = 0;  // 0 = equal to fps
+  int threads = 2;   // encoder thread count
 
-    // ── Pacing ──────────────────────────────────────────────
-    // Emit frames at this rate; 0 disables (file sources otherwise free-run).
-    int         pace_fps   = 0;
+  // ── Pacing ──────────────────────────────────────────────
+  // Emit frames at this rate; 0 disables (file sources otherwise free-run).
+  int pace_fps = 0;
 
-    // ── Output ──────────────────────────────────────────────
-    std::vector<std::shared_ptr<IOutputAdapter>> outputs;
+  // ── Output ──────────────────────────────────────────────
+  std::vector<std::shared_ptr<IOutputAdapter>> outputs;
 };
 
 class FFmpegStreamer {
-public:
-    explicit FFmpegStreamer(const StreamerConfig& cfg);
-    ~FFmpegStreamer();
+ public:
+  explicit FFmpegStreamer(const StreamerConfig& cfg);
+  ~FFmpegStreamer();
 
-    // Lifecycle
-    bool Open();
-    void Close();
-    bool IsOpened() const { return opened_; }
+  // Lifecycle
+  bool Open();
+  void Close();
+  bool IsOpened() const { return opened_; }
 
-    // Process one frame: demux -> decode -> BGR convert ->
-    //   AI callback -> YUV convert -> encode -> output.
-    // Audio packets are decoded and dispatched via audio_cb inline.
-    // Returns false on EOF or unrecoverable error.
-    bool ProcessNextFrame();
+  // Process one frame: demux -> decode -> BGR convert ->
+  //   AI callback -> YUV convert -> encode -> output.
+  // Audio packets are decoded and dispatched via audio_cb inline.
+  // Returns false on EOF or unrecoverable error.
+  bool ProcessNextFrame();
 
-    // Blocking loop until stop is set or EOF/error.
-    void Run(std::atomic<bool>& stop_flag);
+  // Blocking loop until stop is set or EOF/error.
+  void Run(std::atomic<bool>& stop_flag);
 
-    // Accessors (valid after Open)
-    int    GetWidth()  const { return dec_width_; }
-    int    GetHeight() const { return dec_height_; }
-    double GetFPS()    const { return cfg_.fps; }
-    bool   HasAudio()  const { return audio_idx_ >= 0; }
+  // Accessors (valid after Open)
+  int GetWidth() const { return dec_width_; }
+  int GetHeight() const { return dec_height_; }
+  double GetFPS() const { return cfg_.fps; }
+  bool HasAudio() const { return audio_idx_ >= 0; }
 
-private:
-    // ── Internal stages ──────────────────────────────────
-    bool OpenInput();
-    bool OpenDecoder();
-    bool OpenAudioDecoder();
-    bool OpenEncoder();
-    bool OpenScalers();
-    bool OpenOutputs();
+ private:
+  // ── Internal stages ──────────────────────────────────
+  bool OpenInput();
+  bool OpenDecoder();
+  bool OpenAudioDecoder();
+  bool OpenEncoder();
+  bool OpenScalers();
+  bool OpenOutputs();
 
-    // Core processing: read+decode one frame, return false on EOF/error.
-    bool ReadAndDecode(AVFrame* decoded);
+  // Core processing: read+decode one frame, return false on EOF/error.
+  bool ReadAndDecode(AVFrame* decoded);
 
-    // Decode one audio packet and dispatch via audio_cb.
-    void ProcessAudioPacket(AVPacket* pkt);
+  // Decode one audio packet and dispatch via audio_cb.
+  void ProcessAudioPacket(AVPacket* pkt);
 
-    // Encode one frame and deliver to outputs.
-    bool EncodeAndDeliver(AVFrame* enc_in);
+  // Encode one frame and deliver to outputs.
+  bool EncodeAndDeliver(AVFrame* enc_in);
 
-    // Reconnect input on network error
-    bool Reconnect();
+  // Reconnect input on network error
+  bool Reconnect();
 
-    // ── FFmpeg contexts ──────────────────────────────────
-    AVFormatContext*  ifmt_ctx_   = nullptr;
-    AVCodecContext*   dec_ctx_    = nullptr;
-    AVCodecContext*   enc_ctx_    = nullptr;
-    AVCodecContext*   audio_dec_ctx_ = nullptr;
-    const AVCodec*    decoder_    = nullptr;
-    const AVCodec*    encoder_    = nullptr;
-    int               video_idx_  = -1;
-    int               audio_idx_  = -1;
-    AVRational        src_tb_     = {1, 90000};
+  // ── FFmpeg contexts ──────────────────────────────────
+  AVFormatContext* ifmt_ctx_ = nullptr;
+  AVCodecContext* dec_ctx_ = nullptr;
+  AVCodecContext* enc_ctx_ = nullptr;
+  AVCodecContext* audio_dec_ctx_ = nullptr;
+  const AVCodec* decoder_ = nullptr;
+  const AVCodec* encoder_ = nullptr;
+  int video_idx_ = -1;
+  int audio_idx_ = -1;
+  AVRational src_tb_ = {1, 90000};
 
-    // Scalers: decoder fmt → BGR24 (for AI), BGR24 → YUV420P (for encode)
-    SwsContext*       to_bgr_     = nullptr;
-    SwsContext*       to_enc_     = nullptr;
+  // Scalers: decoder fmt → BGR24 (for AI), BGR24 → YUV420P (for encode)
+  SwsContext* to_bgr_ = nullptr;
+  SwsContext* to_enc_ = nullptr;
 
-    // Pre-allocated frames (reused across ProcessNextFrame calls)
-    AVFrame*          decoded_    = nullptr;  // video decoder output
-    AVFrame*          bgr_        = nullptr;  // BGR24 for AI (persistent)
-    AVFrame*          enc_in_     = nullptr;  // YUV420P encoder input (persistent)
+  // Pre-allocated frames (reused across ProcessNextFrame calls)
+  AVFrame* decoded_ = nullptr;  // video decoder output
+  AVFrame* bgr_ = nullptr;      // BGR24 for AI (persistent)
+  AVFrame* enc_in_ = nullptr;   // YUV420P encoder input (persistent)
 
-    StreamerConfig    cfg_;
-    bool              opened_     = false;
-    int               dec_width_  = 0;
-    int               dec_height_ = 0;
-    AVPixelFormat     dec_pix_fmt_ = AV_PIX_FMT_NONE;
-    int64_t           frame_seq_  = 0;
-    Pacer             pacer_;
+  StreamerConfig cfg_;
+  bool opened_ = false;
+  int dec_width_ = 0;
+  int dec_height_ = 0;
+  AVPixelFormat dec_pix_fmt_ = AV_PIX_FMT_NONE;
+  int64_t frame_seq_ = 0;
+  Pacer pacer_;
 };
 
 }  // namespace streamsight::ffmpeg
 
-#endif // STREAMSIGHT_FFMPEG_STREAMER_H
+#endif  // STREAMSIGHT_FFMPEG_STREAMER_H
