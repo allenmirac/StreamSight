@@ -15,10 +15,8 @@ StreamSight 是一个自研的 AI 增强型直播流处理平台。它在进程�
 **核心特色:**
 - **自研 RTSP/RTP 协议栈（rtsp）**: 基于 Reactor 模式（epoll），支持 H.264/H.265/AAC，
   处理后视频可通过网络被任意 RTSP 客户端拉流播放
-- **FFmpeg C API 进程内管线**: 3-stage 流水线（Demux+Decode → AI Process → Encode），
-  替代 fork+pipe 子进程方案，RingBuffer 背压 + FrameDropPolicy 自适应丢帧
-- **可扩展 EffectPlugin 体系**: 人脸检测识别（YuNet + ArcFace ONNX）作为首个插件 demo，
-  后续可扩展水印、马赛克、安全检测、美颜等
+- **FFmpeg C API 进程内管线**: 3-stage 流水线（Demux+Decode → AI Process → Encode），RingBuffer 背压 + FrameDropPolicy 自适应丢帧
+- **可扩展 EffectPlugin 体系**: 人脸检测识别（YuNet + ArcFace ONNX）作为首个插件 demo，后续可扩展水印、马赛克、安全检测、美颜等
 - **RTMP 直播分发**: 内置 RTMP Push Client，对接外部 SRS/nginx-rtmp 实现大规模分发
 - **EffectFactory**: 基于 JSON 配置的动态插件创建
 - **EventBus**: 线程安全的结构化事件发布/订阅
@@ -71,16 +69,16 @@ wget -O models/face_recognition.onnx \
 
 ```bash
 # 主入口: 文件输入 + AI 分析 + RTSP 输出
-./build/bin/streamsight --input ../pic/test.mp4 --port 8554
+./build/bin/streamsight --input pic/test.mp4 --port 8554
 
 # 摄像头输入
 ./build/bin/streamsight --source camera --input 0 --port 8554
 
 # 跳过 AI 处理
-./build/bin/streamsight --input ../pic/test.mp4 --no-ai --port 8554
+./build/bin/streamsight --input pic/test.mp4 --no-ai --port 8554
 
 # RTMP 输出 (需要先启动 SRS，见下方说明)
-./build/bin/streamsight --input ../pic/test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
+./build/bin/streamsight --input pic/test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
 ```
 
 ### 播放与查询
@@ -115,7 +113,7 @@ StreamSight 的 `RtmpOutputAdapter` 是 RTMP Push Client，用于将处理后流
 docker-compose up -d srs
 
 # StreamSight 推送处理后流到 SRS
-./build/bin/streamsight --input ../pic/test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
+./build/bin/streamsight --input pic/test.mp4 --rtmp rtmp://localhost:1935/live/stream --port 8554
 
 # RTMP 播放
 ffplay rtmp://localhost:1935/live/stream
@@ -163,7 +161,7 @@ docs/
 ├── architecture.md          系统架构说明
 ├── api.md                   REST API 文档
 ├── setup.md                 安装与运行指南
-└──latency-testing-implementation.md  延迟测试实现
+└── latency-testing-implementation.md  延迟测试实现
 ```
 
 ---
@@ -194,15 +192,14 @@ docs/
 
 ## 开发路线
 
-**已完成** — Phase 1：进程内 FFmpeg 管线（取代 fork+pipe）+ EffectPlugin 接口 · Phase 2：进程级共享 StreamServer + StreamSession/EventBus · Phase 3：合并式 HTTP API + Effect 动态配置 · Phase 4：legacy `ai::` fork+pipe 死代码清理。
+**已完成** — Phase 1：进程内 FFmpeg 管线（取代 fork+pipe）+ EffectPlugin 接口 · Phase 2：进程级共享 StreamServer + StreamSession/EventBus · Phase 3：合并式 HTTP API + Effect 动态配置 · Phase 4：legacy `ai::` fork+pipe 死代码清理 · 遗留修复：人脸检测、帧率 pacing、serial 埋点（2026-10-03） · net 层微基准（`streamsight-netbench`，2026-10-03）。
 
-**规划中** — 统一记在 `docs/superpowers/PLAN.md`（唯一计划入口，本地文档、已被 gitignore），用 `T1`–`T5` 编号；优先级、设计与验收标准见该文档。
+**规划中**
 
-- **T1** 遗留修复 —— 人脸检测失效（P0）、帧率 pacing、serial 埋点
-- **T2** EncoderPool —— 共享编码线程池，目标 8 路 P99 < 300ms
-- **T3** 边缘 LLM 推理调度器 —— 以模型测速可行性为前置闸门
-- **T4** 内容理解 —— 视频摘要 + Agent 工具接口
-- **T5** CDN —— 基于自研 RPC 的边缘调度（不引入 gRPC）
+- **EncoderPool** —— 共享编码线程池，目标 8 路 P99 < 300ms
+- **边缘 LLM 推理调度器** —— 以模型测速可行性为前置闸门
+- **内容理解** —— 视频摘要 + Agent 工具接口
+- **CDN** —— 基于自研 RPC 的边缘调度（不引入 gRPC）
 
 ---
 

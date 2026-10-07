@@ -15,8 +15,7 @@ StreamSight is an AI-augmented live stream processing platform. It handles the f
 **Key Features:**
 - **Custom RTSP/RTP stack (rtsp)**: Reactor-based (epoll), supports H.264/H.265/AAC.
   Processed video is accessible to any RTSP client over the network.
-- **FFmpeg C API in-process pipeline**: 3-stage pipeline (Demux+Decode → AI Process → Encode),
-  replacing fork+pipe subprocess approach. RingBuffer backpressure + FrameDropPolicy adaptive frame dropping.
+- **FFmpeg C API in-process pipeline**: 3-stage pipeline (Demux+Decode → AI Process → Encode). RingBuffer backpressure + FrameDropPolicy adaptive frame dropping.
 - **Extensible EffectPlugin system**: Face detection/recognition (YuNet + ArcFace ONNX) as the first plugin demo.
   Extensible to watermarking, blurring, safety detection, beautification, etc.
 - **RTMP live distribution**: Built-in RTMP Push Client for external SRS/nginx-rtmp distribution.
@@ -265,16 +264,14 @@ The JSON output includes:
 
 ## Roadmap
 
-**Completed** — Phase 1: in-process FFmpeg pipeline (replacing fork+pipe) + EffectPlugin interface · Phase 2: process-level shared StreamServer + StreamSession/EventBus · Phase 3: merged HTTP API + dynamic effect config · Phase 4: legacy `ai::` fork+pipe code cleanup.
+**Completed** — Phase 1: in-process FFmpeg pipeline (replacing fork+pipe) + EffectPlugin interface · Phase 2: process-level shared StreamServer + StreamSession/EventBus · Phase 3: merged HTTP API + dynamic effect config · Phase 4: legacy `ai::` fork+pipe code cleanup · legacy fixes: face detection, frame-rate pacing, serial instrumentation (2026-10-03) · network-layer microbenchmark (`streamsight-netbench`, 2026-10-03).
 
-**Planned** — tracked as `T1`–`T5` in `docs/superpowers/PLAN.md`, the single planning entry point
-(local-only, gitignored). Priorities, design and acceptance criteria live there.
+**Planned**
 
-- **T1** Legacy fixes — face detection (P0), frame-rate pacing, serial instrumentation
-- **T2** EncoderPool — shared encoder thread pool, targeting 8-stream P99 < 300ms
-- **T3** Edge LLM inference scheduler — gated on a model-benchmark feasibility step
-- **T4** Content understanding — video summarization + Agent tool interface
-- **T5** CDN — edge scheduling over a custom RPC (no gRPC dependency)
+- **EncoderPool** — shared encoder thread pool, targeting 8-stream P99 < 300ms
+- **Edge LLM inference scheduler** — gated on a model-benchmark feasibility step
+- **Content understanding** — video summarization + Agent tool interface
+- **CDN** — edge scheduling over a custom RPC (no gRPC dependency)
 
 ---
 

@@ -7,7 +7,7 @@ StreamSight 是一个基于 C++17 的实时视频流媒体与智能分析系统�
 项目的核心能力包括：
 
 - **流媒体基础能力**：支持 H.264、H.265、G711A、AAC、VP8 等多种音视频格式的 RTSP 推流与分发，支持单播、组播及摘要认证。
-- **FFmpeg C API 进程内管线**：基于 libavformat/libavcodec/libswscale 的 3-stage 流水线（Demux+Decode → AI Process → Encode+Output），RingBuffer 背压 + FrameDropPolicy 自适应丢帧，替代旧有 fork+pipe 子进程方案。
+- **FFmpeg C API 进程内管线**：基于 libavformat/libavcodec/libswscale 的 3-stage 流水线（Demux+Decode → AI Process → Encode+Output），RingBuffer 背压 + FrameDropPolicy 自适应丢帧。
 - **AI 视频分析能力**：基于 OpenCV DNN 和 ONNX 模型实现实时人脸检测（YuNet）与人脸识别（ArcFace），支持人脸库管理、视频帧叠加标注和检测事件记录。
 - **EffectPlugin 可扩展插件体系**：统一 IEffectPlugin 接口，支持 Analysis/Overlay/Transform/Extract 四类插件，FaceRecognitionPlugin 作为首个内置插件，EffectFactory 支持 JSON 配置化动态创建。
 - **可观测性能力**：提供流级的运行时指标采集与查询接口，EventBus 线程安全事件发布/订阅，LatencyTracer RAII 延迟追踪。
@@ -53,14 +53,14 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 | 路径 | 类型 | 说明 |
 |------|------|------|
-| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 1 个主构建目标 + 5 个 test 目标 + stress 目标 |
+| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 1 个主构建目标 + 5 个 test 目标 + 2 个压测/基准目标（`streamsight-stress`、`streamsight-netbench`） |
 | `README.md` / `README_CN.md` | 文件 | 中英文项目说明，含功能介绍、快速开始指南和目录结构 |
-| `LICENSE` | 文件 | MIT 开源许可证 |
+| `LICENSE` | 文件 | Apache License 2.0 开源许可证 |
 | `docs/` | 目录 | 项目文档，含架构说明、API 接口文档、安装指南、CDN 设计、延迟测试方案和技术问答 |
 | `src/` | 目录 | 全部库和模块源码，按功能分为 net/rtsp/ai/ffmpeg/effect/api/observe 七个模块 + 3rdpart 第三方头文件 |
 | `src/main.cpp` | 文件 | 主入口源文件：StreamSession + StreamApiServer |
 | `tests/` | 目录 | 测试源文件，覆盖 EventBus、EffectFactory、StreamSession、StreamApiServer 及 stress tester |
-| `scripts/` | 目录 | 辅助脚本：analyze_latency.py（延迟分析）、run_latency_baseline.sh（一键基线测试）、stress_test.py（压力测试）、tune_kernel.sh |
+| `scripts/` | 目录 | 辅助脚本：analyze_latency.py（延迟分析）、run_latency_baseline.sh（一键基线测试）、run_perf_matrix.py（性能矩阵）、run_net_bench.sh（net 层微基准）、stress_test.py（压力测试）、tune_kernel.sh |
 | `models/` | 目录 | AI 模型文件存放目录，需单独下载 ONNX 模型 |
 | `pic/` | 目录 | 测试用媒体资源（图片、视频文件） |
 | `build/` | 目录 | CMake 构建目录，编译产物输出到 build/bin/ |
@@ -159,7 +159,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 ### 4.4 FFmpeg C API 管线模块（src/ffmpeg）
 
-该模块基于 FFmpeg C API（libavformat / libavcodec / libavutil / libswscale）实现了进程内媒体管线，替代了旧有的 fork/pipe FFmpeg 子进程方案。当前包含以下核心组件：
+该模块基于 FFmpeg C API（libavformat / libavcodec / libavutil / libswscale）实现了进程内媒体管线。当前包含以下核心组件：
 
 **StreamServer — 进程级共享 RTSP 服务器**
 
@@ -267,6 +267,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 |------|--------|------|
 | `streamsight` | `src/main.cpp` | ★ 主入口：StreamSession + StreamApiServer，支持 serial/parallel 管线、EffectPlugin、RTMP 输出、session CRUD |
 | `streamsight-stress` | `tests/stress_tester.cpp` | 压力测试工具，支持多流并发、性能基线采集和 backpressure 验证 |
+| `streamsight-netbench` | `tests/net_bench.cpp` | net 层微基准（RingBuffer / TcpServer / EventLoop），仅依赖 `src/net/`，无需 FFmpeg/OpenCV |
 | `test_*` | `tests/test_*.cpp` | 单元/集成测试：test_event_bus、test_effect_factory、test_stream_session、test_api_server |
 
 ---
@@ -289,9 +290,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 | 文件 | 用途 |
 |------|------|
 | `test.h264` | H.264 裸流文件，用于 `streamsight` / `run_pull_test.sh` 输入测试 |
-| `test.mp4` | MP4 封装视频文件，用于视频源兼容性测试 |
-| `test.png` | 静态人脸图片，用于人脸注册和识别精度测试 |
-| `1.pic.JPG` | 项目架构示意图（供 README 引用） |
+| `1.pic.JPG` | 项目架构示意图 |
 
 ---
 
@@ -328,9 +327,25 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 ---
 
+## 9. 当前架构可能的优化方向
+
+1. **配置中心化**：当前配置分散在命令行参数和硬编码常量中，可引入配置文件（如 YAML/TOML）统一管理运行参数。
+2. **日志系统统一化**：各模块使用不同的日志输出方式，可统一为结构化日志框架，支持日志级别动态调整和文件轮转。
+3. **EffectPlugin 生态扩展**：当前仅有 FaceRecognitionPlugin，可扩展水印、马赛克、安全检测、美颜等插件。
+4. **StreamPipeline stage 间零拷贝优化**：当前 DecodedFrame/ProcessedFrame 通过 shared_ptr 传递像素数据，可改为环形缓冲区 + 指针传递减少分配开销。
+5. **RTSP 会话管理增强**：增加会话超时回收、并发流数限制和带宽统计能力。
+6. **HTTP API 文档完善**：补充 OpenAPI/Swagger 规范文档，便于前端对接和自动化测试。
+7. **测试体系扩展**：当前已有基础测试框架，可进一步提升覆盖率和增加集成测试场景。
+8. **Docker 化部署**：当前 `docker-compose.yml` 仅用于启动外部 SRS，可补充 Dockerfile 封装 StreamSight 的构建与运行，实现一键部署。
+9. **CI/CD 构建流程完善**：接入 GitHub Actions 或 Jenkins，实现自动化编译、测试和发布。
+10. **录制与多协议输出**：当前支持 RTSP 和 RTMP 输出，可扩展 MP4 录制和 HLS 切片输出能力。
+11. **EncoderPool 共享编码线程池**：收敛为进程级共享编码线程池以降低线程争抢，降低完整链路延迟。
+12. **CDN 边缘调度**：基于 `src/net/` 自研轻量 RPC 做边缘调度，**不引入 gRPC/Protobuf**。
+13. **Content Understanding 集成**：接入视频摘要、场景理解等更高级的 AI 能力。
+
 ---
 
-## 9. 总结
+## 10. 总结
 
 StreamSight 是一个融合了网络编程、流媒体协议、AI 视频分析、插件化架构和系统可观测能力的综合型 C++ 项目。它以自研 RTSP/RTP 协议栈和 FFmpeg C API 进程内管线为核心，通过分层架构实现了从视频接入、AI 分析、画面叠加、视频编码到多协议分发的完整媒体处理链路。引入了 EffectPlugin 可扩展插件体系、StreamSession 统一会话抽象、StreamPipeline 3-stage 并行管线、StreamApiServer 合并式 API 服务和 EventBus 事件总线，将项目从一个"单链路流媒体分析程序"升级为"具备平台化能力的流媒体处理系统"。
 
