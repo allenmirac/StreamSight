@@ -233,7 +233,9 @@ if(BUILD_TESTS)
         set(SS_LABELS_SCRIPT
             "${CMAKE_CURRENT_BINARY_DIR}/${target}_labels.cmake")
         file(WRITE "${SS_LABELS_SCRIPT}"
-            "set_tests_properties(\${${target}_TESTS} PROPERTIES LABELS \"${T_LABELS}\")\n")
+            "if(${target}_TESTS)\n"
+            "  set_tests_properties(\${${target}_TESTS} PROPERTIES LABELS \"${T_LABELS}\")\n"
+            "endif()\n")
         set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
             "${SS_LABELS_SCRIPT}")
     endfunction()
