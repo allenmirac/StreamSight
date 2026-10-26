@@ -1,7 +1,13 @@
 #include <gtest/gtest.h>
 
-#include "ffmpeg/StreamSession.h"
+#include <chrono>
+#include <thread>
 
+#include "ffmpeg/StreamServer.h"
+#include "ffmpeg/StreamSession.h"
+#include "support/free_port.h"
+
+using streamsight::ffmpeg::StreamServer;
 using streamsight::ffmpeg::StreamSession;
 using streamsight::ffmpeg::StreamSessionConfig;
 
@@ -91,4 +97,50 @@ TEST(StreamSession, UpdateEffectsWithMissingModelsFails) {
 
   EXPECT_FALSE(ok);
   EXPECT_TRUE(session.GetEffectNames().empty());
+}
+
+TEST(StreamSession, StartWithoutServerFails) {
+  StreamSessionConfig cfg;
+  cfg.enable_ai = false;
+  cfg.enable_audio = false;
+  StreamSession session(cfg);
+
+  EXPECT_FALSE(session.Start(nullptr));
+  EXPECT_FALSE(session.IsRunning());
+}
+
+TEST(StreamSession, StopWithoutStartIsSafe) {
+  StreamSessionConfig cfg;
+  cfg.enable_ai = false;
+  cfg.enable_audio = false;
+  StreamSession session(cfg);
+
+  session.Stop();
+  session.Stop();
+  EXPECT_FALSE(session.IsRunning());
+}
+
+TEST(StreamSession, InvalidInputExitsQuickly) {
+  StreamServer server;
+  const uint16_t port = streamsight::test::FreeTcpPort();
+  ASSERT_NE(port, 0);
+  ASSERT_TRUE(server.Start("127.0.0.1", port, 1));
+
+  StreamSessionConfig cfg;
+  cfg.input_url = "/nonexistent/streamsight_missing_input.mp4";
+  cfg.enable_ai = false;
+  cfg.enable_audio = false;
+  cfg.enable_client_gating = false;
+  cfg.reconnect_on_eof = false;
+
+  StreamSession session(cfg);
+  ASSERT_TRUE(session.Start(&server));
+
+  for (int i = 0; i < 200 && session.IsRunning(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_FALSE(session.IsRunning());
+
+  session.Stop();
+  server.Stop();
 }
