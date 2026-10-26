@@ -9,7 +9,7 @@
 #include <iostream>
 #include <sstream>
 
-#include "FaceRecognizer.h"
+#include "VectorMath.h"
 #include "observe/LatencyTracer.h"
 
 namespace streamsight::ai {
@@ -178,7 +178,7 @@ FaceMatch FaceDatabase::Query(const std::vector<float>& embedding) const {
   std::lock_guard<std::mutex> lock(mutex_);
   FaceMatch best{"unknown", -1.0f, false};
   for (const auto& e : entries_) {
-    float sim = FaceRecognizer::Similarity(e.embedding, embedding);
+    float sim = CosineSimilarity(e.embedding, embedding);
     if (sim > best.similarity) {
       best.similarity = sim;
       best.name = e.name;

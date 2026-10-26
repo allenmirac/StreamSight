@@ -244,6 +244,7 @@ if(BUILD_TESTS)
     set(CORE_TEST_LIBS rt pthread dl m)
 
     set(TEST_CORE_SRCS ${NET_SRCS} ${RTSP_SRCS} ${OBSERVE_SRCS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/FaceDatabase.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/api/JsonUtil.cpp)
     file(GLOB TEST_CORE_TESTS CONFIGURE_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/core/*.cpp)

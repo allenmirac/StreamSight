@@ -6,6 +6,7 @@
 #include <iostream>
 #include <numeric>
 
+#include "VectorMath.h"
 #include "observe/LatencyTracer.h"
 
 namespace streamsight::ai {
@@ -94,19 +95,11 @@ std::vector<std::vector<float>> FaceRecognizer::ExtractBatch(
 
 float FaceRecognizer::Similarity(const std::vector<float>& a,
                                  const std::vector<float>& b) {
-  if (a.size() != b.size() || a.empty()) return -1.0f;
-  float dot = 0.0f;
-  for (size_t i = 0; i < a.size(); ++i) dot += a[i] * b[i];
-  // Both are L2-normalized so ||a||=||b||=1; dot product = cosine similarity
-  return dot;
+  return streamsight::ai::CosineSimilarity(a, b);
 }
 
 void FaceRecognizer::L2Normalize(std::vector<float>& v) {
-  float norm = 0.0f;
-  for (float x : v) norm += x * x;
-  norm = std::sqrt(norm);
-  if (norm < 1e-10f) return;
-  for (float& x : v) x /= norm;
+  streamsight::ai::L2Normalize(v);
 }
 
 }  // namespace streamsight::ai
