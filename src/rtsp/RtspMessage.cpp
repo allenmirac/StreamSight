@@ -247,7 +247,13 @@ bool RtspRequest::ParseAuthorization(std::string& message) {
   std::size_t pos = message.find("Authorization");
   if (pos != std::string::npos) {
     if ((pos = message.find("response=")) != std::string::npos) {
-      auth_response_ = message.substr(pos + 10, 32);
+      pos += std::strlen("response=");
+      // Digest responses are commonly quoted: response="<32 hex>". Skip the
+      // opening quote so exactly the hex digest is captured.
+      if (pos < message.size() && message[pos] == '"') {
+        ++pos;
+      }
+      auth_response_ = message.substr(pos, 32);
       if (auth_response_.size() == 32) {
         return true;
       }

@@ -6,10 +6,10 @@
 #include "rtsp/RtspMessage.h"
 #include "support/socket_reader.h"
 
-using streamsight::rtsp::RtspRequest;
 using streamsight::rtsp::RTP_OVER_MULTICAST;
 using streamsight::rtsp::RTP_OVER_TCP;
 using streamsight::rtsp::RTP_OVER_UDP;
+using streamsight::rtsp::RtspRequest;
 using streamsight::test::SocketReader;
 
 namespace {
@@ -119,11 +119,41 @@ TEST(RtspRequest, ParsesPlayAndTeardown) {
 
 TEST(RtspRequest, ParsesGetParameter) {
   RtspRequest request;
-  ASSERT_TRUE(ParseAll(
-      "GET_PARAMETER rtsp://127.0.0.1:8554/live RTSP/1.0\r\n"
-      "CSeq: 8\r\n\r\n",
-      request));
+  ASSERT_TRUE(
+      ParseAll("GET_PARAMETER rtsp://127.0.0.1:8554/live RTSP/1.0\r\n"
+               "CSeq: 8\r\n\r\n",
+               request));
   EXPECT_EQ(request.GetMethod(), RtspRequest::GET_PARAMETER);
+}
+
+TEST(RtspRequest, ParsesQuotedDigestAuthorizationResponse) {
+  RtspRequest request;
+  ASSERT_TRUE(ParseAll(
+      "DESCRIBE rtsp://127.0.0.1:8554/live RTSP/1.0\r\n"
+      "CSeq: 10\r\n"
+      "Accept: application/sdp\r\n"
+      "Authorization: Digest username=\"user\", realm=\"streamsight\", "
+      "nonce=\"abc123\", uri=\"rtsp://127.0.0.1:8554/live\", "
+      "response=\"f71c28d14f01072969356b080aed539c\"\r\n"
+      "\r\n",
+      request));
+  EXPECT_EQ(request.GetMethod(), RtspRequest::DESCRIBE);
+  EXPECT_EQ(request.GetAuthResponse(), "f71c28d14f01072969356b080aed539c");
+}
+
+TEST(RtspRequest, ParsesUnquotedDigestAuthorizationResponse) {
+  RtspRequest request;
+  ASSERT_TRUE(ParseAll(
+      "DESCRIBE rtsp://127.0.0.1:8554/live RTSP/1.0\r\n"
+      "CSeq: 11\r\n"
+      "Accept: application/sdp\r\n"
+      "Authorization: Digest username=\"user\", realm=\"streamsight\", "
+      "nonce=\"abc123\", uri=\"rtsp://127.0.0.1:8554/live\", "
+      "response=f71c28d14f01072969356b080aed539c\r\n"
+      "\r\n",
+      request));
+  EXPECT_EQ(request.GetMethod(), RtspRequest::DESCRIBE);
+  EXPECT_EQ(request.GetAuthResponse(), "f71c28d14f01072969356b080aed539c");
 }
 
 TEST(RtspRequest, HandlesSplitRequest) {
@@ -149,17 +179,17 @@ TEST(RtspRequest, RejectsUnknownMethod) {
 
 TEST(RtspRequest, RejectsMissingCSeq) {
   RtspRequest request;
-  EXPECT_FALSE(ParseAll(
-      "OPTIONS rtsp://127.0.0.1:8554/live RTSP/1.0\r\n\r\n", request));
+  EXPECT_FALSE(
+      ParseAll("OPTIONS rtsp://127.0.0.1:8554/live RTSP/1.0\r\n\r\n", request));
   EXPECT_FALSE(request.GotAll());
 }
 
 TEST(RtspRequest, RejectsSetupWithoutTransport) {
   RtspRequest request;
-  EXPECT_FALSE(ParseAll(
-      "SETUP rtsp://127.0.0.1:8554/live/track0 RTSP/1.0\r\n"
-      "CSeq: 1\r\n\r\n",
-      request));
+  EXPECT_FALSE(
+      ParseAll("SETUP rtsp://127.0.0.1:8554/live/track0 RTSP/1.0\r\n"
+               "CSeq: 1\r\n\r\n",
+               request));
   EXPECT_FALSE(request.GotAll());
 }
 
@@ -171,15 +201,15 @@ TEST(RtspRequest, RejectsCrlfOnly) {
 
 TEST(RtspRequest, RejectsNonRtspUrl) {
   RtspRequest request;
-  EXPECT_FALSE(ParseAll(
-      "OPTIONS http://127.0.0.1:8554/live RTSP/1.0\r\nCSeq: 1\r\n\r\n",
-      request));
+  EXPECT_FALSE(
+      ParseAll("OPTIONS http://127.0.0.1:8554/live RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+               request));
 }
 
 TEST(RtspRequest, RejectsUnparseableUrl) {
   RtspRequest request;
-  EXPECT_FALSE(ParseAll(
-      "OPTIONS rtsp:// RTSP/1.0\r\nCSeq: 1\r\n\r\n", request));
+  EXPECT_FALSE(
+      ParseAll("OPTIONS rtsp:// RTSP/1.0\r\nCSeq: 1\r\n\r\n", request));
 }
 
 TEST(RtspRequest, BuildsOptionResponse) {
@@ -202,8 +232,8 @@ TEST(RtspRequest, BuildsDescribeResponseWithContentLength) {
   char buf[1024] = {0};
   const int n = request.BuildDescribeRes(buf, sizeof(buf), sdp.c_str());
   EXPECT_EQ(n, static_cast<int>(std::strlen(buf)));
-  EXPECT_NE(std::string(buf).find("Content-Length: " +
-                                  std::to_string(sdp.size()) + "\r\n"),
+  EXPECT_NE(std::string(buf).find(
+                "Content-Length: " + std::to_string(sdp.size()) + "\r\n"),
             std::string::npos);
   EXPECT_NE(std::string(buf).find(sdp), std::string::npos);
 }
@@ -222,8 +252,9 @@ TEST(RtspRequest, BuildsSetupResponses) {
     ASSERT_TRUE(ParseAll(kSetupUdp, request));
     char buf[1024] = {0};
     request.BuildSetupUdpRes(buf, sizeof(buf), 9000, 9001, 43);
-    EXPECT_NE(std::string(buf).find("client_port=8000-8001;server_port=9000-9001"),
-              std::string::npos);
+    EXPECT_NE(
+        std::string(buf).find("client_port=8000-8001;server_port=9000-9001"),
+        std::string::npos);
     EXPECT_NE(std::string(buf).find("Session: 43"), std::string::npos);
   }
 }
