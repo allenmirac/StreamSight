@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.14)
 project(StreamSight)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -160,89 +160,118 @@ message(STATUS "Build targets:")
 message(STATUS "  - streamsight")
 
 # ── Tests ────────────────────────────────────────────────────────────────
-# test_stream_session: structural tests (no FFmpeg/OpenCV runtime needed)
-if(FFMPEG_FOUND AND OpenCV_FOUND)
-    add_executable(test_stream_session
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_stream_session.cpp
-        ${COMMON_SRCS}
-        ${AI_SRCS}
-        ${FFMPEG_SRCS}
-        ${EFFECT_SRCS}
-    )
-    target_link_libraries(test_stream_session
-        ${COMMON_LIBS}
-        ${FFMPEG_LIBS}
-    )
-    target_compile_options(test_stream_session PRIVATE -Wall -Wextra)
-    message(STATUS "  - test_stream_session")
-else()
-    message(STATUS "  - test_stream_session (requires FFmpeg + OpenCV, skipped)")
-endif()
-
-# test_api_server: structural tests for StreamApiServer
-if(FFMPEG_FOUND AND OpenCV_FOUND)
-    add_executable(test_api_server
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_api_server.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/api/StreamApiServer.cpp
-        ${COMMON_SRCS}
-        ${AI_SRCS}
-        ${FFMPEG_SRCS}
-        ${EFFECT_SRCS}
-    )
-    target_link_libraries(test_api_server
-        ${COMMON_LIBS}
-        ${FFMPEG_LIBS}
-    )
-    target_compile_options(test_api_server PRIVATE -Wall -Wextra)
-    message(STATUS "  - test_api_server")
-else()
-    message(STATUS "  - test_api_server (requires FFmpeg + OpenCV, skipped)")
-endif()
-
-# test_event_bus: header-only, just needs pthread
-add_executable(test_event_bus
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_event_bus.cpp
-)
-target_link_libraries(test_event_bus pthread)
-target_compile_options(test_event_bus PRIVATE -Wall -Wextra)
-message(STATUS "  - test_event_bus")
-
-# test_effect_factory: needs AI + Effect sources
-if(FFMPEG_FOUND AND OpenCV_FOUND)
-    add_executable(test_effect_factory
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_effect_factory.cpp
-        ${COMMON_SRCS}
-        ${AI_SRCS}
-        ${EFFECT_SRCS}
-    )
-    target_link_libraries(test_effect_factory
-        ${COMMON_LIBS}
-        ${FFMPEG_LIBS}
-    )
-    target_compile_options(test_effect_factory PRIVATE -Wall -Wextra)
-    message(STATUS "  - test_effect_factory")
-else()
-    message(STATUS "  - test_effect_factory (requires FFmpeg + OpenCV, skipped)")
-endif()
-
-# BUILD_TESTS: unified test target
 option(BUILD_TESTS "Build all test binaries" OFF)
+
 if(BUILD_TESTS)
-    add_executable(test_smoke
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_smoke_driver.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_event_bus.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_effect_factory.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_stream_session.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_api_server.cpp
-        ${COMMON_SRCS}
-        ${AI_SRCS}
-        ${FFMPEG_SRCS}
-        ${EFFECT_SRCS}
-        ${API_SRCS}
-    )
-    target_link_libraries(test_smoke ${COMMON_LIBS} ${FFMPEG_LIBS})
-    target_compile_options(test_smoke PRIVATE -Wall -Wextra -DTEST_SMOKE_BUILD)
-    message(STATUS "  - test_smoke (all tests)")
+    enable_testing()
+
+    # GoogleTest: system package first, FetchContent fallback.
+    find_package(GTest QUIET)
+    if(NOT GTest_FOUND)
+        include(FetchContent)
+        FetchContent_Declare(
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG        v1.14.0)
+        set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
+    endif()
+
+    add_library(ss_gtest_main INTERFACE)
+    if(TARGET GTest::gtest_main)
+        target_link_libraries(ss_gtest_main INTERFACE GTest::gtest_main)
+    elseif(TARGET GTest::Main)
+        target_link_libraries(ss_gtest_main INTERFACE GTest::Main)
+    else()
+        target_link_libraries(ss_gtest_main INTERFACE gtest_main)
+    endif()
+
+    # Comma-separated: address,undefined OR thread.
+    set(ENABLE_SANITIZERS "" CACHE STRING "Sanitizers: address,undefined or thread")
+    set(SS_SAN_FLAGS "")
+    if(ENABLE_SANITIZERS AND
+       NOT ENABLE_SANITIZERS STREQUAL "address,undefined" AND
+       NOT ENABLE_SANITIZERS STREQUAL "thread")
+        message(FATAL_ERROR
+            "ENABLE_SANITIZERS must be 'address,undefined' or 'thread'")
+    endif()
+    if(ENABLE_SANITIZERS MATCHES "thread" AND
+       ENABLE_SANITIZERS MATCHES "address")
+        message(FATAL_ERROR
+            "ENABLE_SANITIZERS=thread cannot be combined with address")
+    endif()
+    if(ENABLE_SANITIZERS)
+        string(REPLACE "," ";" SS_SAN_LIST "${ENABLE_SANITIZERS}")
+        string(REPLACE ";" "," SS_SAN_CSV "${SS_SAN_LIST}")
+        set(SS_SAN_FLAGS
+            "-fsanitize=${SS_SAN_CSV}"
+            "-fno-omit-frame-pointer"
+            "-g")
+    endif()
+
+    include(GoogleTest)
+
+    function(streamsight_add_test target)
+        cmake_parse_arguments(T "" "" "SOURCES;LIBS;LABELS" ${ARGN})
+        add_executable(${target} ${T_SOURCES})
+        target_include_directories(${target} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+        target_link_libraries(${target} PRIVATE ss_gtest_main ${T_LIBS})
+        target_compile_options(${target} PRIVATE -Wall -Wextra)
+        if(SS_SAN_FLAGS)
+            target_compile_options(${target} PRIVATE ${SS_SAN_FLAGS})
+            target_link_options(${target} PRIVATE ${SS_SAN_FLAGS})
+        endif()
+        gtest_discover_tests(${target}
+            PROPERTIES TIMEOUT 60
+            DISCOVERY_TIMEOUT 30)
+        # gtest_discover_tests forwards PROPERTIES as a list, so every label
+        # after the first one would be parsed as another property name.
+        # Apply labels from a test-time include script instead, where the
+        # discovered <target>_TESTS list is available.
+        set(SS_LABELS_SCRIPT
+            "${CMAKE_CURRENT_BINARY_DIR}/${target}_labels.cmake")
+        file(WRITE "${SS_LABELS_SCRIPT}"
+            "set_tests_properties(\${${target}_TESTS} PROPERTIES LABELS \"${T_LABELS}\")\n")
+        set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+            "${SS_LABELS_SCRIPT}")
+    endfunction()
+
+    set(CORE_TEST_LIBS rt pthread dl m)
+
+    set(TEST_CORE_SRCS ${NET_SRCS} ${RTSP_SRCS} ${OBSERVE_SRCS})
+    file(GLOB TEST_CORE_TESTS CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/core/*.cpp)
+    streamsight_add_test(test_core
+        SOURCES ${TEST_CORE_SRCS} ${TEST_CORE_TESTS}
+        LIBS ${CORE_TEST_LIBS}
+        LABELS "fast;tsan")
+
+    if(FFMPEG_FOUND AND OpenCV_FOUND)
+        file(GLOB TEST_AI_TESTS CONFIGURE_DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/ai/*.cpp)
+        streamsight_add_test(test_ai_core
+            SOURCES ${AI_SRCS} ${EFFECT_SRCS} ${OBSERVE_SRCS} ${TEST_AI_TESTS}
+            LIBS ${CORE_TEST_LIBS} ${OPENCV_LIBS}
+            LABELS "heavy")
+
+        file(GLOB TEST_FFMPEG_TESTS CONFIGURE_DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/ffmpeg/*.cpp)
+        streamsight_add_test(test_ffmpeg
+            SOURCES ${COMMON_SRCS} ${AI_SRCS} ${EFFECT_SRCS}
+                    ${FFMPEG_SRCS} ${TEST_FFMPEG_TESTS}
+            LIBS ${COMMON_LIBS} ${FFMPEG_LIBS}
+            LABELS "heavy")
+
+        file(GLOB TEST_API_TESTS CONFIGURE_DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/api/*.cpp)
+        streamsight_add_test(test_api
+            SOURCES ${COMMON_SRCS} ${AI_SRCS} ${EFFECT_SRCS}
+                    ${FFMPEG_SRCS} ${API_SRCS} ${TEST_API_TESTS}
+            LIBS ${COMMON_LIBS} ${FFMPEG_LIBS}
+            LABELS "heavy;http")
+    endif()
 endif()
 
 # streamsight-stress: stress testing harness
@@ -277,8 +306,6 @@ target_include_directories(streamsight-netbench PRIVATE
 )
 target_link_libraries(streamsight-netbench pthread dl rt m)
 target_compile_options(streamsight-netbench PRIVATE -Wall -Wextra)
-# Stamp the build type into the binary so a stored JSON can never be mistaken
-# for one produced by a different optimisation level.
 target_compile_definitions(streamsight-netbench PRIVATE
     STREAMSIGHT_BUILD_TYPE="${CMAKE_BUILD_TYPE}")
 message(STATUS "  - streamsight-netbench")
