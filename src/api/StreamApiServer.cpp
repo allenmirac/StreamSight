@@ -12,6 +12,7 @@
 #include <opencv2/opencv.hpp>
 #include <sstream>
 
+#include "JsonUtil.h"
 #include "ai/FaceDatabase.h"
 #include "ai/FaceRecognizer.h"
 #include "httplib.h"
@@ -23,110 +24,6 @@ namespace streamsight::api {
 struct StreamApiServer::Impl {
   httplib::Server svr;
 };
-
-// ─── JSON value extractors for POST body parsing ────────────────────────────
-static std::string JsonGetValue(const std::string& json,
-                                const std::string& key) {
-  std::string search = "\"" + key + "\"";
-  size_t pos = json.find(search);
-  if (pos == std::string::npos) return "";
-  pos = json.find(':', pos + search.size());
-  if (pos == std::string::npos) return "";
-  pos++;
-  while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-                               json[pos] == '\n' || json[pos] == '\r'))
-    pos++;
-  if (pos >= json.size()) return "";
-
-  if (json[pos] == '"') {
-    // Extract quoted string
-    size_t start = pos + 1;
-    size_t end = start;
-    while (end < json.size()) {
-      if (json[end] == '\\') {
-        end += 2;
-        continue;
-      }
-      if (json[end] == '"') break;
-      end++;
-    }
-    return json.substr(start, end - start);
-  }
-
-  if (json[pos] == '{' || json[pos] == '[') {
-    // Extract nested object/array with bracket counting
-    char open = json[pos];
-    char close = (open == '{') ? '}' : ']';
-    int depth = 1;
-    size_t start = pos;
-    pos++;
-    while (pos < json.size() && depth > 0) {
-      if (json[pos] == '"') {
-        pos++;
-        while (pos < json.size() && json[pos] != '"') {
-          if (json[pos] == '\\') pos++;
-          pos++;
-        }
-      } else if (json[pos] == open) {
-        depth++;
-      } else if (json[pos] == close) {
-        depth--;
-      }
-      if (depth > 0) pos++;
-    }
-    return json.substr(start, pos - start + 1);
-  }
-
-  // Number, bool, or null literal
-  size_t start = pos;
-  while (pos < json.size() && json[pos] != ',' && json[pos] != '}' &&
-         json[pos] != ']' && json[pos] != ' ' && json[pos] != '\t' &&
-         json[pos] != '\n' && json[pos] != '\r') {
-    pos++;
-  }
-  return json.substr(start, pos - start);
-}
-
-static std::string JsonGetString(const std::string& json,
-                                 const std::string& key) {
-  return JsonGetValue(json, key);
-}
-
-static int JsonGetInt(const std::string& json, const std::string& key,
-                      int def = 0) {
-  std::string v = JsonGetValue(json, key);
-  if (v.empty()) return def;
-  try {
-    return std::stoi(v);
-  } catch (...) {
-    return def;
-  }
-}
-
-static bool JsonGetBool(const std::string& json, const std::string& key,
-                        bool def = false) {
-  std::string v = JsonGetValue(json, key);
-  if (v == "true") return true;
-  if (v == "false") return false;
-  return def;
-}
-
-// ─── JSON helpers
-// ─────────────────────────────────────────────────────────────
-static std::string EscJson(const std::string& s) {
-  std::string out;
-  for (char c : s) {
-    if (c == '"')
-      out += "\\\"";
-    else if (c == '\\')
-      out += "\\\\";
-    else if (c == '\n')
-      out += "\\n";
-    else
-      out += c;
-  }
-  return out;
-}
 
 static std::string FaceResultJson(const streamsight::ai::FaceResult& f) {
   std::ostringstream ss;
