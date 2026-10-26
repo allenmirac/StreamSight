@@ -61,10 +61,6 @@ class FaceDetector {
   bool IsLoaded() const { return loaded_; }
 
  private:
-  // Greedy non-maximum suppression over score-sorted candidates.
-  static std::vector<FaceBox> Nms(const std::vector<FaceBox>& boxes,
-                                  float iou_thresh);
-
   std::string model_path_;
   float score_thresh_;
   float nms_thresh_;

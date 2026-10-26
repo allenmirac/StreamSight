@@ -96,6 +96,7 @@ set(AI_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/EventLogger.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/FaceDatabase.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/FaceDetector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/FaceDetectorDetail.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/FaceRecognizer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/FrameAnalyzer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ai/FrameOverlay.cpp
