@@ -79,6 +79,31 @@ TEST(BufferReader, RetrieveUntilAndReadAll) {
   EXPECT_EQ(reader.ReadableBytes(), 0u);
 }
 
+TEST(BufferReader, GrowsBufferWhenPayloadExceedsInitialCapacity) {
+  SocketReader sr;
+  BufferReader& reader = sr.reader();
+  const uint32_t initial_size = reader.Size();
+  ASSERT_EQ(reader.ReadableBytes(), 0u);
+
+  // Two 1500-byte feeds total 3000 bytes, more than the initial buffer.
+  // BufferReader::Read must resize so the full payload remains readable.
+  std::string half;
+  half.reserve(1500);
+  for (int i = 0; i < 1500; ++i) {
+    half.push_back(static_cast<char>('a' + i % 26));
+  }
+  sr.Feed(half);
+  sr.Feed(half);
+
+  EXPECT_GT(reader.Size(), initial_size);
+  EXPECT_EQ(reader.ReadableBytes(), 3000u);
+
+  std::string all;
+  EXPECT_EQ(reader.ReadAll(all), 3000u);
+  EXPECT_EQ(all, half + half);
+  EXPECT_EQ(reader.ReadableBytes(), 0u);
+}
+
 TEST(BufferReader, RetrieveBeyondReadableClearsBuffer) {
   SocketReader sr;
   sr.Feed("abc");
