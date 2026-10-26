@@ -26,9 +26,14 @@ TEST(MediaSession, AddsGetsAndRemovesSources) {
 TEST(MediaSession, AddingToSameChannelReplacesSource) {
   std::unique_ptr<MediaSession> session(MediaSession::CreateNew("live"));
 
-  ASSERT_TRUE(session->AddSource(channel_0, H264Source::CreateNew(25)));
-  ASSERT_TRUE(session->AddSource(channel_0, H264Source::CreateNew(30)));
-  EXPECT_NE(session->GetMediaSource(channel_0), nullptr);
+  auto* first = H264Source::CreateNew(25);
+  auto* second = H264Source::CreateNew(30);
+  ASSERT_TRUE(session->AddSource(channel_0, first));
+  ASSERT_TRUE(session->AddSource(channel_0, second));
+  EXPECT_EQ(session->GetMediaSource(channel_0), second);
+  auto* current = static_cast<H264Source*>(session->GetMediaSource(channel_0));
+  ASSERT_NE(current, nullptr);
+  EXPECT_EQ(current->GetFramerate(), 30u);
   EXPECT_EQ(session->GetMediaSource(channel_1), nullptr);
 }
 

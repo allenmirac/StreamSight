@@ -101,6 +101,25 @@ TEST(H264Source, FragmentsLargeFrameWithFuA) {
   EXPECT_EQ(packets[0].size, 4u + 12u + 1420u);
   EXPECT_EQ(packets[1].size, 4u + 12u + 2u + 2u);
 
+  const auto first_bytes = PacketBytes(packets[0]);
+  const auto last_bytes = PacketBytes(packets[1]);
+
+  // RFC 6184 FU indicator: F|NRI copied from the NAL header, type 28 (FU-A).
+  EXPECT_EQ(first_bytes[16] & 0x1Fu, 28u);
+  EXPECT_EQ(first_bytes[16] & 0xE0u, 0x60u);
+  EXPECT_EQ(last_bytes[16] & 0x1Fu, 28u);
+  EXPECT_EQ(last_bytes[16] & 0xE0u, 0x60u);
+
+  // FU header: S=1, E=0 on the first fragment; S=0, E=1 on the last.
+  EXPECT_NE(first_bytes[17] & 0x80u, 0u);
+  EXPECT_EQ(first_bytes[17] & 0x40u, 0u);
+  EXPECT_EQ(last_bytes[17] & 0x80u, 0u);
+  EXPECT_NE(last_bytes[17] & 0x40u, 0u);
+
+  // NAL type is preserved in the FU header's low 5 bits.
+  EXPECT_EQ(first_bytes[17] & 0x1Fu, 0x65u & 0x1Fu);
+  EXPECT_EQ(last_bytes[17] & 0x1Fu, 0x65u & 0x1Fu);
+
   const auto rebuilt = Reassemble(packets);
   const std::vector<uint8_t> expected(original.buffer.get(),
                                       original.buffer.get() + original.size);
