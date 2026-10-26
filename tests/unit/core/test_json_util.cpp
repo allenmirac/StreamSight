@@ -52,7 +52,7 @@ TEST(JsonUtil, ParsesIntegersWithDefault) {
 TEST(JsonUtil, ParsesBooleansWithDefault) {
   EXPECT_TRUE(JsonGetBool(R"({"on":true})", "on", false));
   EXPECT_FALSE(JsonGetBool(R"({"on":false})", "on", true));
-  EXPECT_TRUE(JsonGetBool(R"({"on":TRUE})", "on", true));
+  EXPECT_FALSE(JsonGetBool(R"({"on":TRUE})", "on", false));
   EXPECT_FALSE(JsonGetBool(R"({"on":"true"})", "on", false));
 }
 
