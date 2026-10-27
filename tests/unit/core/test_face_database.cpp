@@ -131,10 +131,16 @@ TEST(FaceDatabase, ConcurrentRegistrationIsSafe) {
       for (int i = 0; i < 100; ++i) {
         db.Register("p" + std::to_string(t) + "_" + std::to_string(i),
                     {1.0f, 0.0f});
+        // Query concurrently with registrations; the result is intentionally
+        // not asserted here, only that the interleaving is crash-free.
+        (void)db.Query({1.0f, 0.0f});
       }
     });
   }
   for (auto& thread : threads) thread.join();
 
   EXPECT_EQ(db.Size(), 400u);
+  const auto match = db.Query({1.0f, 0.0f});
+  EXPECT_TRUE(match.matched);
+  EXPECT_EQ(match.name.rfind("p", 0), 0u);
 }

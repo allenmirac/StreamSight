@@ -43,6 +43,7 @@ class EchoServer : public TcpServer {
   explicit EchoServer(EventLoop* loop) : TcpServer(loop) {}
 
   std::atomic<int> accepted{0};
+  std::atomic<int> disconnected{0};
 
  protected:
   TcpConnection::Ptr OnConnect(SOCKET sockfd) override {
@@ -57,6 +58,15 @@ class EchoServer : public TcpServer {
           return true;
         });
     return conn;
+  }
+
+  // TcpServer installs its disconnect callback after OnConnect returns, and
+  // SetDisconnectCallback is private to TcpServer's friend scope. Counting at
+  // the virtual removal hook still proves the closed client was dispatched
+  // through that callback and removed from the server.
+  void RemoveConnection(SOCKET sockfd) override {
+    ++disconnected;
+    TcpServer::RemoveConnection(sockfd);
   }
 };
 
@@ -113,6 +123,21 @@ TEST(EventLoop, TriggerEventsRunInSubmissionOrder) {
   EXPECT_EQ(order, (std::vector<int>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}));
 }
 
+TEST(EventLoop, QuitWakesIdleLoop) {
+  EventLoop loop(1);
+  std::promise<void> done;
+  auto future = done.get_future();
+
+  std::thread helper([&]() {
+    loop.Quit();
+    done.set_value();
+  });
+
+  ASSERT_EQ(future.wait_for(std::chrono::seconds(2)),
+            std::future_status::ready);
+  helper.join();
+}
+
 TEST(EventLoop, TimerFires) {
   EventLoop loop(1);
   std::promise<void> done;
@@ -155,5 +180,6 @@ TEST(TcpServer, EchoesDataAndStops) {
   EXPECT_EQ(received, message);
 
   ::close(fd);
+  EXPECT_TRUE(WaitFor([&]() { return server.disconnected.load() == 1; }));
   server.Stop();
 }

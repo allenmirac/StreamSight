@@ -65,7 +65,9 @@ TEST(StreamApiServer, RegistersExternalSession) {
   EXPECT_EQ(server.GetSession(id), session);
 }
 
-TEST(StreamApiServer, AcceptsResultsAndEvents) {
+// Characterization test: UpdateResult/AddEvent expose no public getter, so
+// this only pins down that accepting a result and an event does not crash.
+TEST(StreamApiServer, AcceptingResultsAndEventsDoesNotCrash) {
   StreamApiServer server(19996);
   streamsight::ai::AnalysisResult result;
   result.frame_id = 42;

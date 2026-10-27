@@ -27,6 +27,14 @@ TEST(DigestAuthentication, ResponseChangesWithCommandOrUrl) {
             auth.GetResponse("other", "DESCRIBE", "rtsp://127.0.0.1/live"));
 }
 
+TEST(DigestAuthentication, WrongPasswordProducesDifferentResponse) {
+  DigestAuthentication auth("streamsight", "user", "pass");
+  DigestAuthentication wrong("streamsight", "user", "not-pass");
+
+  EXPECT_NE(auth.GetResponse("abc123", "DESCRIBE", "rtsp://127.0.0.1/live"),
+            wrong.GetResponse("abc123", "DESCRIBE", "rtsp://127.0.0.1/live"));
+}
+
 TEST(DigestAuthentication, NonceIsMd5Hex) {
   DigestAuthentication auth("streamsight", "user", "pass");
   const std::string nonce = auth.GetNonce();

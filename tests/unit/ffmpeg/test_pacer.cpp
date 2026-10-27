@@ -28,6 +28,17 @@ TEST(Pacer, DisabledWhenFpsIsNotPositive) {
   EXPECT_FALSE(cp.pacer.Enabled());
   cp.pacer.Wait();
   EXPECT_EQ(cp.clock.NowUs(), 0);
+
+  cp.pacer.SetFps(-1);
+  EXPECT_FALSE(cp.pacer.Enabled());
+  cp.pacer.Wait();
+  EXPECT_EQ(cp.clock.NowUs(), 0);
+}
+
+TEST(Pacer, EnabledForPositiveFps) {
+  ClockedPacer cp;
+  cp.pacer.SetFps(30);
+  EXPECT_TRUE(cp.pacer.Enabled());
 }
 
 TEST(Pacer, FirstWaitDoesNotSleep) {

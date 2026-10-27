@@ -72,6 +72,45 @@ TEST(EventLogger, MinFacesFiltersEvents) {
   EXPECT_EQ(CountLines(path), 0u);
 }
 
+TEST(EventLogger, MinFacesBoundaryIsInclusive) {
+  TempDir dir;
+
+  // 0 faces with min_faces=1: nothing is logged.
+  {
+    const std::string path = dir.Path("zero.jsonl");
+    EventLogger logger(path, 1);
+    ASSERT_TRUE(logger.Open());
+    AnalysisResult empty;
+    empty.timestamp_ms = 1;
+    empty.frame_id = 0;
+    logger.Log(empty);
+    logger.Close();
+    EXPECT_EQ(CountLines(path), 0u);
+  }
+
+  // 1 face with min_faces=1: exactly one line.
+  {
+    const std::string path = dir.Path("one.jsonl");
+    EventLogger logger(path, 1);
+    ASSERT_TRUE(logger.Open());
+    logger.Log(OneFace(1));
+    logger.Close();
+    EXPECT_EQ(CountLines(path), 1u);
+  }
+
+  // 2 faces with min_faces=2: the threshold is inclusive.
+  {
+    const std::string path = dir.Path("two.jsonl");
+    EventLogger logger(path, 2);
+    ASSERT_TRUE(logger.Open());
+    AnalysisResult two = OneFace(2);
+    two.faces.push_back(two.faces.front());
+    logger.Log(two);
+    logger.Close();
+    EXPECT_EQ(CountLines(path), 1u);
+  }
+}
+
 TEST(EventLogger, AppendsAcrossReopen) {
   TempDir dir;
   const std::string path = dir.Path("events.jsonl");

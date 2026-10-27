@@ -314,6 +314,8 @@ target_include_directories(streamsight-netbench PRIVATE
 )
 target_link_libraries(streamsight-netbench pthread dl rt m)
 target_compile_options(streamsight-netbench PRIVATE -Wall -Wextra)
+# Stamp the build type into the binary so a stored JSON can never be mistaken
+# for one produced by a different optimisation level.
 target_compile_definitions(streamsight-netbench PRIVATE
     STREAMSIGHT_BUILD_TYPE="${CMAKE_BUILD_TYPE}")
 message(STATUS "  - streamsight-netbench")

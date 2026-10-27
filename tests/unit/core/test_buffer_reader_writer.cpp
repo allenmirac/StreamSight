@@ -45,6 +45,24 @@ TEST(BufferByteOrder, RoundTripsAllWidths) {
   EXPECT_EQ(ReadUint16LE(buf), 0x0102u);
 }
 
+TEST(BufferByteOrder, WritersEmitCanonicalBytes) {
+  // Round-trips would also pass if both directions were swapped, so assert
+  // the exact raw byte layout for one big-endian and one little-endian writer.
+  char be[4] = {0};
+  WriteUint32BE(be, 0x01020304u);
+  EXPECT_EQ(static_cast<unsigned char>(be[0]), 0x01u);
+  EXPECT_EQ(static_cast<unsigned char>(be[1]), 0x02u);
+  EXPECT_EQ(static_cast<unsigned char>(be[2]), 0x03u);
+  EXPECT_EQ(static_cast<unsigned char>(be[3]), 0x04u);
+
+  char le[4] = {0};
+  WriteUint32LE(le, 0x01020304u);
+  EXPECT_EQ(static_cast<unsigned char>(le[0]), 0x04u);
+  EXPECT_EQ(static_cast<unsigned char>(le[1]), 0x03u);
+  EXPECT_EQ(static_cast<unsigned char>(le[2]), 0x02u);
+  EXPECT_EQ(static_cast<unsigned char>(le[3]), 0x01u);
+}
+
 TEST(BufferReader, FindsCrlfPositions) {
   SocketReader sr;
   sr.Feed("line1\r\nline2\r\n\r\n");

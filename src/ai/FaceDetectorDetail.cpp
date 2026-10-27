@@ -13,6 +13,10 @@ struct LevelHeads {
   int kps = -1;
 };
 
+// Prior box size as a fraction of the input, per feature stride. The values
+// were calibrated against labelled frames: current YuNet exports no longer
+// match OpenCV 4.5.4's hardcoded multi-anchor layout, so they cannot be
+// derived from that table. Coarser strides predict larger boxes.
 float PriorForStride(int stride) {
   switch (stride) {
   case 8:

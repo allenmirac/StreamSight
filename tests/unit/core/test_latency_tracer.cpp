@@ -155,6 +155,30 @@ TEST_F(LatencyTracerTest, ResetClearsEventsAndStats) {
   EXPECT_TRUE(tracer.GetStats().empty());
 }
 
+TEST_F(LatencyTracerTest, EnableToggleReflectsState) {
+  auto& tracer = LatencyTracer::Instance();
+  tracer.Enable(false);
+  EXPECT_FALSE(tracer.IsEnabled());
+
+  tracer.Enable(true);
+  EXPECT_TRUE(tracer.IsEnabled());
+}
+
+TEST_F(LatencyTracerTest, DisabledScopeDoesNotRecord) {
+  auto& tracer = LatencyTracer::Instance();
+  tracer.Reset();
+  tracer.Enable(false);
+
+  {
+    LatencyScope scope("lat_disabled", "work");
+  }
+
+  EXPECT_TRUE(tracer.GetStats().empty());
+  EXPECT_TRUE(tracer.GetRecentEvents(10).empty());
+
+  tracer.Enable(true);  // restore for subsequent tests
+}
+
 TEST_F(LatencyTracerTest, ScopeRecordsDuration) {
   {
     LatencyScope scope("lat_scope", "work");

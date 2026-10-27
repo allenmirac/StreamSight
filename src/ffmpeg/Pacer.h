@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <thread>
+#include <utility>
 
 namespace streamsight::ffmpeg {
 
