@@ -20,7 +20,7 @@ jobs:
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ github.job }}-
@@ -52,7 +52,7 @@ jobs:
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ github.job }}-
@@ -89,7 +89,7 @@ jobs:
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ github.job }}-
@@ -125,7 +125,7 @@ jobs:
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ github.job }}-
