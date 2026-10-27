@@ -5,9 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   fast:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Cache apt archives
@@ -40,6 +44,7 @@ jobs:
 
   full:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Cache apt archives
@@ -73,6 +78,7 @@ jobs:
 
   asan:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     env:
       ASAN_OPTIONS: detect_leaks=1
       LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan_suppressions.txt
@@ -113,6 +119,7 @@ jobs:
 
   tsan:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Cache apt archives
