@@ -161,10 +161,15 @@ src/
 └── 3rdpart/   Third-party headers (httplib)
 
 tests/
-├── test_event_bus.cpp
-├── test_effect_factory.cpp
-├── test_stream_session.cpp
-└── test_api_server.cpp
+├── unit/
+│   ├── core/      net、rtsp、observe、FaceDatabase、JSON
+│   ├── ai/        FaceDetector、Overlay、Analyzer、EventLogger、Effect
+│   ├── ffmpeg/    Pacer、FFmpegUtils、StreamSession
+│   └── api/       StreamApiServer 注册表
+├── support/       测试辅助（临时目录、socketpair、假时钟、端口）
+├── lsan_suppressions.txt
+├── net_bench.cpp
+└── stress_tester.cpp
 
 docs/
 ├── architecture.md          System architecture (Chinese)

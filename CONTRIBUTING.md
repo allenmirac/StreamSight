@@ -38,14 +38,15 @@ cmake .. && make -j$(nproc)
 cd build
 cmake .. -DBUILD_TESTS=ON
 make -j$(nproc)
-./bin/test_smoke
+ctest --output-on-failure
+ctest -L fast --output-on-failure
 ```
 
 构建选项：
 
 | 选项 | 默认 | 说明 |
 |------|------|------|
-| `BUILD_TESTS` | OFF | 构建所有测试目标（`test_smoke` 统一入口 + 各模块单测） |
+| `BUILD_TESTS` | OFF | 构建 GoogleTest 测试目标（`test_core` / `test_ai_core` / `test_ffmpeg` / `test_api`） |
 
 ## 代码风格
 

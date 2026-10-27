@@ -1,0 +1,6 @@
+# Third-party libraries may keep one-time global allocations alive.
+leak:libavformat
+leak:libavcodec
+leak:libavutil
+leak:libswscale
+leak:libopencv

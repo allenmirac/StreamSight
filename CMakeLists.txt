@@ -254,14 +254,16 @@ if(BUILD_TESTS)
         LIBS ${CORE_TEST_LIBS}
         LABELS "fast;tsan")
 
-    if(FFMPEG_FOUND AND OpenCV_FOUND)
+    if(OpenCV_FOUND)
         file(GLOB TEST_AI_TESTS CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/ai/*.cpp)
         streamsight_add_test(test_ai_core
             SOURCES ${AI_SRCS} ${EFFECT_SRCS} ${OBSERVE_SRCS} ${TEST_AI_TESTS}
             LIBS ${CORE_TEST_LIBS} ${OPENCV_LIBS}
             LABELS "heavy")
+    endif()
 
+    if(FFMPEG_FOUND AND OpenCV_FOUND)
         file(GLOB TEST_FFMPEG_TESTS CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/ffmpeg/*.cpp)
         streamsight_add_test(test_ffmpeg

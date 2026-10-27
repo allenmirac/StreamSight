@@ -8,7 +8,7 @@
 - GCC 7+ (支持 C++17)
 - FFmpeg（用于 H.264 编码）
 - OpenCV 4.x（含 DNN 模块）
-- CMake 3.10+（CMake 构建可选）
+- CMake 3.14+
 
 ### 安装依赖
 
@@ -80,26 +80,35 @@ cmake .. && make -j$(nproc)
 # 编译产物在 build/bin/
 ```
 
-CMake 会自动检测 FFmpeg 和 OpenCV 依赖。若 FFmpeg 开发库未安装，`streamsight`、`test_*` 和 `streamsight-stress` 目标将被跳过。
+CMake 会自动检测 FFmpeg 和 OpenCV 依赖，缺少依赖时只跳过相关目标：`test_core` 始终构建；`test_ai_core` 需要 OpenCV；`test_ffmpeg` / `test_api`、`streamsight` 和 `streamsight-stress` 需要 FFmpeg + OpenCV。
 
 ### 构建选项
 
 ```bash
-# 启用测试目标（test_smoke 统一测试入口）
+# 启用测试目标（GoogleTest + ctest）
 cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
+ctest --output-on-failure            # 全部
+ctest -L fast --output-on-failure    # 无 FFmpeg/OpenCV 依赖的快车道
+ctest -L tsan --output-on-failure    # 只选择带 tsan 标签的 test_core 用例（不启用 TSan 检测）
+
+# TSan 检测构建（独立目录）
+cmake -S . -B build-tsan -DBUILD_TESTS=ON \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_SANITIZERS=thread
+cmake --build build-tsan --target test_core -j$(nproc)
+ctest --test-dir build-tsan -L tsan --output-on-failure
 ```
 
 ### 编译产物
 
 | 目标 | 说明 |
-|------|------|
-| `streamsight` | ★ 主入口：StreamSession + API server（音视频 + RTMP） |
-| `streamsight-stress` | 压力测试工具（多流并发、性能基线） |
-| `test_event_bus` | EventBus 单元测试 |
-| `test_effect_factory` | EffectFactory 单元测试 |
-| `test_stream_session` | StreamSession 单元测试 |
-| `test_api_server` | StreamApiServer 单元测试 |
-| `test_smoke` | 统一测试入口（需 BUILD_TESTS=ON） |
+|---|---|
+| `streamsight` | ★ 主入口：StreamSession + StreamApiServer（音视频 + RTMP） |
+| `test_core` | net / rtsp / observe / FaceDatabase / JSON 工具，无外部依赖 |
+| `test_ai_core` | AI 与 Effect 纯逻辑（需要 OpenCV） |
+| `test_ffmpeg` | FFmpeg 管线与 StreamSession 生命周期 |
+| `test_api` | StreamApiServer 注册表（HTTP 路由测试后续加入） |
+| `streamsight-netbench` | 网络层微基准（工具，不注册进 ctest） |
+| `streamsight-stress` | 多流压力测试（工具，不注册进 ctest） |
 
 ---
 

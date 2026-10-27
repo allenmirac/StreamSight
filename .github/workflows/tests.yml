@@ -1,0 +1,147 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  fast:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.apt-archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/tests.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ github.job }}-
+      - name: Install dependencies
+        run: |
+          mkdir -p "$HOME/.apt-archives/partial"
+          sudo apt-get update
+          sudo apt-get install -y -o Dir::Cache::archives="$HOME/.apt-archives" \
+            libgtest-dev ccache
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build core tests
+        run: cmake --build build --target test_core -j$(nproc)
+      - name: Run fast tests
+        run: ctest --test-dir build -L fast --output-on-failure
+
+  full:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.apt-archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/tests.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ github.job }}-
+      - name: Install dependencies
+        run: |
+          mkdir -p "$HOME/.apt-archives/partial"
+          sudo apt-get update
+          sudo apt-get install -y -o Dir::Cache::archives="$HOME/.apt-archives" \
+            libgtest-dev libopencv-dev libavformat-dev libavcodec-dev \
+            libavutil-dev libswscale-dev ccache
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build
+        run: cmake --build build -j$(nproc)
+      - name: Run all tests
+        run: ctest --test-dir build --output-on-failure
+
+  asan:
+    runs-on: ubuntu-22.04
+    env:
+      ASAN_OPTIONS: detect_leaks=1
+      LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan_suppressions.txt
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.apt-archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/tests.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ github.job }}-
+      - name: Install dependencies
+        run: |
+          mkdir -p "$HOME/.apt-archives/partial"
+          sudo apt-get update
+          sudo apt-get install -y -o Dir::Cache::archives="$HOME/.apt-archives" \
+            libgtest-dev libopencv-dev libavformat-dev libavcodec-dev \
+            libavutil-dev libswscale-dev ccache
+      - name: Configure
+        run: |
+          cmake -S . -B build -DBUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DENABLE_SANITIZERS=address,undefined \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build
+        run: cmake --build build -j$(nproc)
+      - name: Run under ASan/UBSan
+        run: ctest --test-dir build --output-on-failure
+
+  tsan:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.apt-archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/tests.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.job }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ github.job }}-
+      - name: Install dependencies
+        run: |
+          mkdir -p "$HOME/.apt-archives/partial"
+          sudo apt-get update
+          sudo apt-get install -y -o Dir::Cache::archives="$HOME/.apt-archives" \
+            libgtest-dev ccache
+      - name: Configure
+        run: |
+          cmake -S . -B build -DBUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DENABLE_SANITIZERS=thread \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build core tests
+        run: cmake --build build --target test_core -j$(nproc)
+      - name: Run under TSan
+        run: ctest --test-dir build -L tsan --output-on-failure

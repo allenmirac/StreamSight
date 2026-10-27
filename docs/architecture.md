@@ -268,7 +268,8 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 | `streamsight` | `src/main.cpp` | ★ 主入口：StreamSession + StreamApiServer，支持 serial/parallel 管线、EffectPlugin、RTMP 输出、session CRUD |
 | `streamsight-stress` | `tests/stress_tester.cpp` | 压力测试工具，支持多流并发、性能基线采集和 backpressure 验证 |
 | `streamsight-netbench` | `tests/net_bench.cpp` | net 层微基准（RingBuffer / TcpServer / EventLoop），仅依赖 `src/net/`，无需 FFmpeg/OpenCV |
-| `test_*` | `tests/test_*.cpp` | 单元/集成测试：test_event_bus、test_effect_factory、test_stream_session、test_api_server |
+| `tests/unit/*` | GoogleTest 用例：core（net/rtsp/observe/FaceDatabase/JSON）、ai、ffmpeg、api |
+| `tests/support/*` | 测试辅助：临时目录、socketpair、假时钟、空闲端口 |
 
 ---
 
