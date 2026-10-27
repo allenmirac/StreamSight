@@ -166,6 +166,23 @@ TEST(BufferWriter, SendsAllQueuedBytes) {
   ::close(fds[1]);
 }
 
+TEST(BufferWriter, DestroysCopiedPayloadWithArrayDelete) {
+  // Regression for an alloc/dealloc mismatch: Append(const char*) owns a
+  // new[] buffer, so dropping the queued packet must use delete[].
+  // ASan reports this on destruction.
+  {
+    BufferWriter writer(2);
+    ASSERT_TRUE(writer.Append("payload", 7));
+    ASSERT_TRUE(writer.Append("another", 7));
+    EXPECT_TRUE(writer.IsFull());
+  }
+
+  {
+    BufferWriter writer(2);
+    ASSERT_TRUE(writer.Append("payload", 7));
+  }
+}
+
 TEST(BufferWriter, FailedSendKeepsPacketQueued) {
   std::signal(SIGPIPE, SIG_IGN);
 

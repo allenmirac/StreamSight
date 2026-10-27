@@ -69,7 +69,9 @@ bool BufferWriter::Append(const char* data, uint32_t size, uint32_t index) {
   }
 
   Packet pkt;
-  pkt.data.reset(new char[size + 512]);
+  // The payload is allocated with new[] and must be released with delete[].
+  pkt.data = std::shared_ptr<char>(new char[size + 512],
+                                   std::default_delete<char[]>());
   memcpy(pkt.data.get(), data, size);
   pkt.size = size;
   pkt.writeIndex = index;

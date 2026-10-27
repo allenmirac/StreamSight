@@ -53,10 +53,6 @@ int64_t TimerQueue::GetTimeRemaining() {
 }
 
 void TimerQueue::HandleTimerEvent() {
-  if (timers_.empty()) {
-    return;
-  }
-
   // Collect expired timer callbacks under lock, then invoke them
   // outside the lock to avoid deadlock if a callback calls
   // AddTimer/RemoveTimer.
@@ -64,6 +60,9 @@ void TimerQueue::HandleTimerEvent() {
 
   {
     std::lock_guard<std::mutex> locker(mutex_);
+    if (timers_.empty()) {
+      return;
+    }
     int64_t timePoint = GetTimeNow();
     while (!events_.empty() && events_.begin()->first.first <= timePoint) {
       TimerId timerId = events_.begin()->first.second;
