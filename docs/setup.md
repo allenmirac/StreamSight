@@ -5,7 +5,7 @@
 ### 系统要求
 
 - Linux (Ubuntu 20.04+ / Debian 11+)
-- GCC 7+ (支持 C++17)
+- GCC 9+ / Clang 9+（C++17；测试目标使用 `std::filesystem`）
 - FFmpeg（用于 H.264 编码）
 - OpenCV 4.x（含 DNN 模块）
 - CMake 3.14+
@@ -90,10 +90,25 @@ cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 ctest --output-on-failure            # 全部
 ctest -L fast --output-on-failure    # 无 FFmpeg/OpenCV 依赖的快车道
 ctest -L tsan --output-on-failure    # 只选择带 tsan 标签的 test_core 用例（不启用 TSan 检测）
+```
 
-# TSan 检测构建（独立目录）
-cmake -S . -B build-tsan -DBUILD_TESTS=ON \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_SANITIZERS=thread
+### 测试与 sanitizer
+
+测试依赖 GoogleTest：优先安装系统包 `libgtest-dev`；系统未提供时 CMake 会通过 FetchContent 自动拉取（离线环境需预置源码）。测试目标使用 `std::filesystem`，因此编译器需 GCC 9+ / Clang 9+。
+
+```bash
+# ASan + UBSan（含泄漏检测）
+cmake -S . -B build-asan -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DENABLE_SANITIZERS=address,undefined
+cmake --build build-asan -j$(nproc)
+ASAN_OPTIONS=detect_leaks=1 \
+LSAN_OPTIONS=suppressions=$PWD/tests/lsan_suppressions.txt \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+ctest --test-dir build-asan --output-on-failure
+
+# TSan（core 测试 + tsan 标签用例）
+cmake -S . -B build-tsan -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DENABLE_SANITIZERS=thread
 cmake --build build-tsan --target test_core -j$(nproc)
 ctest --test-dir build-tsan -L tsan --output-on-failure
 ```

@@ -153,7 +153,7 @@ ai.face_database_search                 150      8.600     7.900    10.200    12
 - 查看 stderr 是否有 `[LatencyTracer] Cannot open log` 错误
 
 ### 编译失败
-- 确保使用 GCC 7+ 或 Clang 5+（C++17）
+- 确保使用 GCC 9+ 或 Clang 9+（C++17）
 - 确认 CMakeLists.txt 或 Makefile 已包含 `src/observe/LatencyTracer.cpp`
 
 ### 没有 HTTP 接口数据

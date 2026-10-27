@@ -284,7 +284,7 @@ The JSON output includes:
 
 | Component | Version |
 |-----------|---------|
-| Compiler | GCC 7+ / Clang 5+ (C++17) |
+| Compiler | GCC 9+ / Clang 9+ (C++17) |
 | OpenCV | 4.x with DNN module |
 | FFmpeg | 4.x+ (libavformat/libavcodec/libavutil/libswscale) |
 | CMake | 3.14+ |

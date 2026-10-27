@@ -207,10 +207,10 @@ docs/
 
 | 组件 | 版本 |
 |------|------|
-| 编译器 | GCC 7+ / Clang 5+ (C++17) |
+| 编译器 | GCC 9+ / Clang 9+ (C++17) |
 | OpenCV | 4.x，含 DNN 模块 |
 | FFmpeg | 4.x+ (libavformat/libavcodec/libavutil/libswscale) |
-| CMake | 3.10+ |
+| CMake | 3.14+ |
 | 操作系统 | Linux (epoll) / Windows (select) |
 
 ---

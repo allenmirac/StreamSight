@@ -31,7 +31,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 | API 服务层 | `src/api/` | StreamApiServer 合并式 HTTP API，整合旧版路由（/api/current、/api/faces 等）和 v1 session CRUD（/api/v1/sessions）及 latency 查询 |
 | 可观测性层 | `src/observe/` | 提供线程安全的内存键值指标注册与快照导出（MetricsRegistry）、RAII 延迟追踪（LatencyTracer）和模板化 EventBus 事件发布/订阅 |
 | 入口程序 | `src/main.cpp` | 主入口：把 StreamSession 接到共享 RTSP 服务端与 HTTP API（StreamSession + API server） |
-| 测试层 | `tests/` | 单元测试和集成测试，覆盖 EventBus、EffectFactory、StreamSession、StreamApiServer 及 stress tester |
+| 测试层 | `tests/` | 单元测试与测试支撑：`tests/unit/` 下按 core/ai/ffmpeg/api 分组，`tests/support/` 提供临时目录、假时钟、空闲端口等辅助设施 |
 
 ### 2.2 模块调用关系
 
@@ -53,13 +53,13 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 | 路径 | 类型 | 说明 |
 |------|------|------|
-| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 1 个主构建目标 + 5 个 test 目标 + 2 个压测/基准目标（`streamsight-stress`、`streamsight-netbench`） |
+| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 1 个主构建目标 + 4 个 GoogleTest 测试目标 + 2 个压测/基准目标（`streamsight-stress`、`streamsight-netbench`） |
 | `README.md` / `README_CN.md` | 文件 | 中英文项目说明，含功能介绍、快速开始指南和目录结构 |
 | `LICENSE` | 文件 | Apache License 2.0 开源许可证 |
 | `docs/` | 目录 | 项目文档，含架构说明、API 接口文档、安装指南、CDN 设计、延迟测试方案和技术问答 |
 | `src/` | 目录 | 全部库和模块源码，按功能分为 net/rtsp/ai/ffmpeg/effect/api/observe 七个模块 + 3rdpart 第三方头文件 |
 | `src/main.cpp` | 文件 | 主入口源文件：StreamSession + StreamApiServer |
-| `tests/` | 目录 | 测试源文件，覆盖 EventBus、EffectFactory、StreamSession、StreamApiServer 及 stress tester |
+| `tests/` | 目录 | 测试源码：`tests/unit/{core,ai,ffmpeg,api}` 分别为 net/rtsp/observe/FaceDatabase/JSON、检测/叠加/分析/日志/Effect、Pacer/FFmpegUtils/StreamSession、Session 注册表；`tests/support/` 为共享测试辅助 |
 | `scripts/` | 目录 | 辅助脚本：analyze_latency.py（延迟分析）、run_latency_baseline.sh（一键基线测试）、run_perf_matrix.py（性能矩阵）、run_net_bench.sh（net 层微基准）、stress_test.py（压力测试）、tune_kernel.sh |
 | `models/` | 目录 | AI 模型文件存放目录，需单独下载 ONNX 模型 |
 | `pic/` | 目录 | 测试用媒体资源（图片、视频文件） |
