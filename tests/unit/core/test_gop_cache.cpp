@@ -2,17 +2,21 @@
 
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include "rtsp/GopCache.h"
+#include "rtsp/H264Source.h"
 #include "rtsp/media.h"
 #include "rtsp/rtp.h"
 
 using streamsight::rtsp::AUDIO_FRAME;
+using streamsight::rtsp::AVFrame;
 using streamsight::rtsp::CachedPacket;
 using streamsight::rtsp::channel_0;
 using streamsight::rtsp::GopCache;
 using streamsight::rtsp::H264;
+using streamsight::rtsp::H264Source;
 using streamsight::rtsp::H265;
 using streamsight::rtsp::MediaChannelId;
 using streamsight::rtsp::MediaType;
@@ -47,6 +51,29 @@ void StoreNal(GopCache& cache, MediaType type, uint8_t header, uint8_t frame_typ
               bool last, uint32_t ts, size_t extra = 8) {
   cache.Store(channel_0, type,
               MakePacket(frame_type, AnnexB(header, extra), last, ts));
+}
+
+void AppendNal(std::vector<uint8_t>* out, uint8_t header,
+               const std::vector<uint8_t>& body) {
+  const uint8_t start[4] = {0, 0, 0, 1};
+  out->insert(out->end(), start, start + 4);
+  out->push_back(header);
+  out->insert(out->end(), body.begin(), body.end());
+}
+
+// Shaped like one AVPacket from the production encoder: libx264 (no
+// AV_CODEC_FLAG_GLOBAL_HEADER) emits SPS+PPS+SEI+IDR as Annex-B in a single
+// packet, and RtspOutputAdapter prepends one more 4-byte start code. The
+// result therefore starts with a doubled start code.
+std::vector<uint8_t> ProductionAu() {
+  std::vector<uint8_t> au;
+  const uint8_t start[4] = {0, 0, 0, 1};
+  au.insert(au.end(), start, start + 4);  // RtspOutputAdapter prepend
+  AppendNal(&au, 0x67, std::vector<uint8_t>(6, 0x11));   // SPS
+  AppendNal(&au, 0x68, std::vector<uint8_t>(4, 0x22));   // PPS
+  AppendNal(&au, 0x06, std::vector<uint8_t>(2, 0x33));   // SEI
+  AppendNal(&au, 0x65, std::vector<uint8_t>(16, 0x44));  // IDR
+  return au;
 }
 
 std::vector<uint8_t> NalHeaders(const std::vector<CachedPacket>& packets) {
@@ -184,6 +211,61 @@ TEST(GopCache, IgnoresUnsupportedVideoCodec) {
   GopCache cache;
   StoreNal(cache, streamsight::rtsp::NONE, 0x65, VIDEO_FRAME_I, true, 1000);
   EXPECT_TRUE(cache.Empty());
+}
+
+TEST(GopCache, MultiNalAccessUnitWithDoubledStartCodeStartsGop) {
+  GopCache cache;
+  const auto au = ProductionAu();
+  ASSERT_LT(au.size(), 1420u);
+
+  cache.Store(channel_0, H264, MakePacket(VIDEO_FRAME_I, au, true, 1000));
+  StoreNal(cache, H264, 0x41, VIDEO_FRAME_P, true, 2000);
+
+  const auto snapshot = cache.Snapshot();
+  ASSERT_EQ(snapshot.size(), 2u);
+  EXPECT_EQ(snapshot[0].pkt.type, VIDEO_FRAME_I);
+  EXPECT_EQ(snapshot[0].pkt.size,
+            static_cast<uint32_t>(16 + au.size()));
+  EXPECT_EQ(snapshot[1].pkt.type, VIDEO_FRAME_P);
+  EXPECT_EQ(snapshot[1].pkt.timestamp, 2000u);
+}
+
+TEST(GopCache, H264SourceRoundTripOfMultiNalAuAppendsPFrame) {
+  std::unique_ptr<H264Source> source(H264Source::CreateNew(25));
+  GopCache cache;
+  source->SetSendFrameCallback(
+      [&cache](MediaChannelId channel, RtpPacket pkt) {
+        cache.Store(channel, H264, pkt);
+        return true;
+      });
+
+  const auto au = ProductionAu();
+  ASSERT_LT(au.size(), 1420u);
+  AVFrame frame(static_cast<uint32_t>(au.size()));
+  std::memcpy(frame.buffer.get(), au.data(), au.size());
+  frame.type = VIDEO_FRAME_I;
+  frame.timestamp = 1000;
+  ASSERT_TRUE(source->HandleFrame(channel_0, frame));
+  ASSERT_EQ(cache.FrameCount(), 1u);
+
+  const auto p = AnnexB(0x41, 8);
+  AVFrame p_frame(static_cast<uint32_t>(p.size()));
+  std::memcpy(p_frame.buffer.get(), p.data(), p.size());
+  p_frame.type = VIDEO_FRAME_P;
+  p_frame.timestamp = 2000;
+  ASSERT_TRUE(source->HandleFrame(channel_0, p_frame));
+
+  const auto snapshot = cache.Snapshot();
+  ASSERT_EQ(snapshot.size(), 2u);
+  EXPECT_EQ(snapshot[0].pkt.type, VIDEO_FRAME_I);
+  const uint8_t* payload = snapshot[0].pkt.data.get() + 16;
+  // The adapter's start code is preserved ahead of x264's own start code.
+  const std::vector<uint8_t> doubled_start = {0, 0, 0, 1, 0, 0, 0, 1};
+  EXPECT_EQ(std::vector<uint8_t>(payload, payload + doubled_start.size()),
+            doubled_start);
+  EXPECT_EQ(payload[doubled_start.size()], 0x67);
+  EXPECT_EQ(snapshot[1].pkt.type, VIDEO_FRAME_P);
+  EXPECT_EQ(snapshot[1].pkt.timestamp, 2000u);
 }
 
 TEST(GopCache, OrdersH265ParamSets) {

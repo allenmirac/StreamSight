@@ -39,6 +39,24 @@ TEST(MetricsRegistry, SnapshotPrefixFilters) {
   EXPECT_EQ(snapshot.begin()->first, "test_metrics_prefix_a.x");
 }
 
+TEST(MetricsRegistry, RemovePrefixOnlyRemovesMatchingKeys) {
+  auto& metrics = MetricsRegistry::Instance();
+  metrics.SetGauge("test_metrics_remove_a", "x", 1.0);
+  metrics.SetGauge("test_metrics_remove_a", "y", 2.0);
+  // Shares the textual prefix but not the "scope." boundary.
+  metrics.SetGauge("test_metrics_remove_ab", "x", 3.0);
+  metrics.SetGauge("test_metrics_remove_b", "x", 4.0);
+
+  EXPECT_EQ(metrics.RemovePrefix("test_metrics_remove_a."), 2u);
+  EXPECT_DOUBLE_EQ(metrics.GetMetric("test_metrics_remove_a", "x"), 0.0);
+  EXPECT_DOUBLE_EQ(metrics.GetMetric("test_metrics_remove_a", "y"), 0.0);
+  EXPECT_DOUBLE_EQ(metrics.GetMetric("test_metrics_remove_ab", "x"), 3.0);
+  EXPECT_DOUBLE_EQ(metrics.GetMetric("test_metrics_remove_b", "x"), 4.0);
+
+  EXPECT_EQ(metrics.RemovePrefix("test_metrics_remove_"), 2u);
+  EXPECT_TRUE(metrics.Snapshot("test_metrics_remove_").empty());
+}
+
 TEST(MetricsRegistry, ConcurrentIncrementsAreSafe) {
   auto& metrics = MetricsRegistry::Instance();
   const std::string scope = "test_metrics_concurrent";

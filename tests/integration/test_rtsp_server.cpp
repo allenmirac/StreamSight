@@ -259,6 +259,70 @@ TEST(RtspIntegration, RtcpReceiverReportUpdatesMetricsAndKeepsAlive) {
   EXPECT_NE(resp.find("RTSP/1.0 200 OK"), std::string::npos);
 }
 
+TEST(RtspIntegration, UdpRtcpReceiverReportUpdatesMetricsAndKeepsAlive) {
+  RtspServerFixture fixture;
+  ASSERT_TRUE(fixture.Start());
+  RtspTestClient client(fixture.port());
+  ASSERT_TRUE(client.Connect());
+
+  std::string resp;
+  std::string sdp;
+  ASSERT_TRUE(client.Options(&resp));
+  ASSERT_TRUE(client.Describe("/live", &sdp, &resp));
+  ASSERT_TRUE(client.SetupUdp("/live/track0", &resp));
+  EXPECT_NE(resp.find("RTSP/1.0 200 OK"), std::string::npos);
+  ASSERT_GT(client.server_rtp_port(), 0);
+  ASSERT_GT(client.server_rtcp_port(), 0);
+  ASSERT_TRUE(client.Play(&resp));
+  EXPECT_NE(resp.find("RTSP/1.0 200 OK"), std::string::npos);
+
+  ASSERT_TRUE(fixture.PushH264(Nal(0x67, 8), streamsight::rtsp::VIDEO_FRAME_I,
+                               1000));
+  ASSERT_TRUE(fixture.PushH264(Nal(0x68, 8), streamsight::rtsp::VIDEO_FRAME_I,
+                               2000));
+  ASSERT_TRUE(fixture.PushH264(Nal(0x65, 64), streamsight::rtsp::VIDEO_FRAME_I,
+                               3000));
+
+  RtpPacketView rtp;
+  ASSERT_TRUE(client.ReadUdpRtp(&rtp, 2000));
+  ASSERT_GT(rtp.ssrc, 0u);
+
+  const auto rr = BuildRr(rtp.ssrc, 10, 5, 100);
+  ASSERT_TRUE(client.SendUdpRtcp(rr.data(), rr.size()));
+
+  ASSERT_TRUE(WaitFor([&]() {
+    const auto snapshot =
+        streamsight::observe::MetricsRegistry::Instance().Snapshot("rtcp.");
+    for (const auto& kv : snapshot) {
+      if (kv.first.find("_fraction_lost") != std::string::npos &&
+          static_cast<int>(kv.second) == 10) {
+        return true;
+      }
+    }
+    return false;
+  }));
+
+  const auto snapshot =
+      streamsight::observe::MetricsRegistry::Instance().Snapshot("rtcp.");
+  bool saw_jitter = false;
+  bool saw_rtt = false;
+  for (const auto& kv : snapshot) {
+    if (kv.first.find("_jitter") != std::string::npos && kv.second == 100.0) {
+      saw_jitter = true;
+    }
+    if (kv.first.find("_rtt_us") != std::string::npos && kv.second > 400000.0 &&
+        kv.second < 800000.0) {
+      saw_rtt = true;
+    }
+  }
+  EXPECT_TRUE(saw_jitter);
+  EXPECT_TRUE(saw_rtt);
+
+  std::string get_resp;
+  ASSERT_TRUE(client.GetParameter(&get_resp));
+  EXPECT_NE(get_resp.find("RTSP/1.0 200 OK"), std::string::npos);
+}
+
 TEST(RtspIntegration, KeyframeGatesLivePackets) {
   RtspServerFixture fixture;
   ASSERT_TRUE(fixture.Start());

@@ -191,8 +191,9 @@ void RtspConnection::SendRtspMessage(std::shared_ptr<char> buf, uint32_t size) {
 
 void RtspConnection::HandleRtcp(BufferReader& buffer) {
   // TCP interleaved RTCP: $ + channel + length + RTCP compound packet
+  if (buffer.ReadableBytes() < 4) return;
   char* peek = buffer.Peek();
-  if (peek[0] == '$' && buffer.ReadableBytes() >= 4) {
+  if (peek[0] == '$') {
     const uint32_t pkt_size = (static_cast<uint8_t>(peek[2]) << 8) |
                               static_cast<uint8_t>(peek[3]);
     if (pkt_size + 4 <= buffer.ReadableBytes()) {

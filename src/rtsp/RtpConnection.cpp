@@ -38,6 +38,15 @@ RtpConnection::RtpConnection(std::weak_ptr<TcpConnection> rtsp_connection)
 RtpConnection::~RtpConnection() {
   StopRtcpTimer();
 
+  // Drop this connection's RTCP gauges. Keys embed the object address, so
+  // leaving them behind would leak one set per client and serve stale values
+  // when the allocator reuses the address.
+  streamsight::observe::MetricsRegistry& metrics =
+      streamsight::observe::MetricsRegistry::Instance();
+  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
+    metrics.RemovePrefix("rtcp." + RtcpMetricPrefix(chn) + "_");
+  }
+
   for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
     if (rtpfd_[chn] > 0) {
       SocketUtil::Close(rtpfd_[chn]);
@@ -366,9 +375,7 @@ void RtpConnection::OnRtcpPacket(MediaChannelId channel_hint,
     stats.last_report_middle = now_middle;
     stats.valid = true;
 
-    const std::string prefix =
-        "conn" + std::to_string(reinterpret_cast<uintptr_t>(this)) + "_" +
-        std::to_string(channel);
+    const std::string prefix = RtcpMetricPrefix(static_cast<uint8_t>(channel));
     metrics.SetGauge("rtcp", prefix + "_fraction_lost", stats.fraction_lost);
     metrics.SetGauge("rtcp", prefix + "_cumulative_lost",
                      stats.cumulative_lost);

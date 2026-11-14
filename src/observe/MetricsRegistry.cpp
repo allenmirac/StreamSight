@@ -43,4 +43,18 @@ std::map<std::string, double> MetricsRegistry::Snapshot(
   return out;
 }
 
+size_t MetricsRegistry::RemovePrefix(const std::string& prefix) {
+  std::lock_guard<std::mutex> lk(mu_);
+  size_t removed = 0;
+  for (auto it = metrics_.begin(); it != metrics_.end();) {
+    if (it->first.find(prefix) == 0) {
+      it = metrics_.erase(it);
+      ++removed;
+    } else {
+      ++it;
+    }
+  }
+  return removed;
+}
+
 }  // namespace streamsight::observe

@@ -10,6 +10,8 @@ namespace {
 
 constexpr int kPureAudioGuessCount = 115;  // SRS: ~3s of 26ms audio packets
 constexpr size_t kMaxParamSets = 4;
+// RtpPacket owns a fixed 1600-byte buffer; never copy more than that.
+constexpr size_t kMaxRtpPacketBytes = 1600;
 
 const uint8_t* PayloadOf(const RtpPacket& pkt) {
   return pkt.data.get() + RTP_TCP_HEAD_SIZE + RTP_HEADER_SIZE;
@@ -20,14 +22,31 @@ size_t PayloadSize(const RtpPacket& pkt) {
   return pkt.size > header ? pkt.size - header : 0;
 }
 
-size_t SkipStartCode(const uint8_t* p, size_t size) {
-  if (size >= 4 && p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 1) {
-    return 4;
-  }
-  if (size >= 3 && p[0] == 0 && p[1] == 0 && p[2] == 1) {
+// Length of a 3-byte start code at p[i]; a 4-byte 00 00 00 01 is found one byte
+// later, so this single rule covers both forms.
+size_t StartCodeLenAt(const uint8_t* p, size_t size, size_t i) {
+  if (i + 3 <= size && p[i] == 0 && p[i + 1] == 0 && p[i + 2] == 1) {
     return 3;
   }
   return 0;
+}
+
+// Index of the next start code at or after `from`, or `size` if none exists.
+// A 00 00 03 escape is skipped together with its following byte so an
+// emulation-prevention sequence can never be mistaken for a boundary.
+size_t FindStartCode(const uint8_t* p, size_t size, size_t from) {
+  size_t i = from;
+  while (i + 3 <= size) {
+    if (p[i] == 0 && p[i + 1] == 0) {
+      if (p[i + 2] == 1) return i;
+      if (p[i + 2] == 3) {
+        i += 4;
+        continue;
+      }
+    }
+    ++i;
+  }
+  return size;
 }
 
 }  // namespace
@@ -61,9 +80,10 @@ CachedPacket GopCache::Copy(MediaChannelId channel, const RtpPacket& pkt) {
   out.pkt.type = pkt.type;
   out.pkt.last = pkt.last;
   out.pkt.timestamp = pkt.timestamp;
-  out.pkt.size = pkt.size;
-  if (pkt.size > 0) {
-    std::memcpy(out.pkt.data.get(), pkt.data.get(), pkt.size);
+  const size_t copy_size = std::min<size_t>(pkt.size, kMaxRtpPacketBytes);
+  out.pkt.size = static_cast<uint32_t>(copy_size);
+  if (copy_size > 0) {
+    std::memcpy(out.pkt.data.get(), pkt.data.get(), copy_size);
   }
   return out;
 }
@@ -82,35 +102,55 @@ bool GopCache::IsFuPacket(MediaType media_type, const RtpPacket& pkt) {
   return false;
 }
 
-bool GopCache::ParseNalType(MediaType media_type, const RtpPacket& pkt,
-                            uint8_t* nal_type) {
-  const uint8_t* p = PayloadOf(pkt);
-  const size_t size = PayloadSize(pkt);
-  if (size == 0) return false;
+GopCache::AccessUnitScan GopCache::ScanAccessUnit(MediaType media_type,
+                                                  const uint8_t* p,
+                                                  size_t size) {
+  AccessUnitScan scan;
+  if ((media_type != H264 && media_type != H265) || size == 0) return scan;
 
-  if (media_type == H264) {
-    if ((p[0] & 0x1F) == 28 && size >= 2) {
-      *nal_type = p[1] & 0x1F;
-      return true;
+  const size_t header_len = media_type == H265 ? 2 : 1;
+
+  auto consider = [&](size_t header_pos) {
+    if (header_pos + header_len > size) return;
+    const uint8_t nal_type =
+        media_type == H265
+            ? static_cast<uint8_t>((p[header_pos] >> 1) & 0x3F)
+            : static_cast<uint8_t>(p[header_pos] & 0x1F);
+    const bool is_idr =
+        media_type == H265 ? (nal_type == 19 || nal_type == 20) : nal_type == 5;
+    if (is_idr) {
+      scan.has_idr = true;
+      return;
     }
-    const size_t off = SkipStartCode(p, size);
-    if (off >= size) return false;
-    *nal_type = p[off] & 0x1F;
-    return true;
+    if (IsParameterSet(media_type, nal_type)) {
+      if (!scan.has_param_set ||
+          ParamRank(media_type, nal_type) <
+              ParamRank(media_type, scan.param_nal_type)) {
+        scan.has_param_set = true;
+        scan.param_nal_type = nal_type;
+      }
+    }
+  };
+
+  const size_t first = FindStartCode(p, size, 0);
+  if (first == size) {
+    // No start code at all: the payload is a bare NAL unit.
+    consider(0);
+    return scan;
   }
 
-  if (media_type == H265) {
-    if (size >= 3 && ((p[0] >> 1) & 0x3F) == 49) {
-      *nal_type = p[2] & 0x3F;
-      return true;
+  size_t pos = first;
+  while (pos < size) {
+    const size_t sc_len = StartCodeLenAt(p, size, pos);
+    if (sc_len == 0) {
+      pos = FindStartCode(p, size, pos + 1);
+      continue;
     }
-    const size_t off = SkipStartCode(p, size);
-    if (off + 1 >= size) return false;
-    *nal_type = (p[off] >> 1) & 0x3F;
-    return true;
+    consider(pos + sc_len);
+    // Skip past the NAL header; the next scan finds the following start code.
+    pos = FindStartCode(p, size, pos + sc_len + header_len);
   }
-
-  return false;
+  return scan;
 }
 
 bool GopCache::IsParameterSet(MediaType media_type, uint8_t nal_type) {
@@ -163,19 +203,27 @@ void GopCache::StoreLocked(MediaChannelId channel, const MediaType& media_type,
   }
 
   if (video) {
-    uint8_t nal_type = 0;
-    const bool has_nal = ParseNalType(media_type, pkt, &nal_type);
-    // Parameter sets are expected to be single packets. A fragmented packet
-    // is never treated as a parameter set; it falls through to the IDR/P
-    // grouping below.
+    // A single RTP packet may carry a whole access unit: the production
+    // encoder (libx264 without AV_CODEC_FLAG_GLOBAL_HEADER) emits
+    // SPS+PPS+SEI+IDR in one AVPacket and the output adapter prepends one
+    // more start code before pushing the AU. Scanning only the first NAL
+    // would misclassify such an AU as a parameter set and drop the following
+    // P frames. Fragmented packets are never parameter sets and fall through
+    // to the IDR/P grouping below.
     const bool is_fu = IsFuPacket(media_type, pkt);
-    if (!is_fu && has_nal && IsParameterSet(media_type, nal_type)) {
+    AccessUnitScan scan;
+    if (!is_fu) {
+      scan = ScanAccessUnit(media_type, PayloadOf(pkt), PayloadSize(pkt));
+    }
+
+    if (!is_fu && !scan.has_idr && scan.has_param_set) {
       // Parameter sets form a dependency chain ordered by rank (VPS -> SPS ->
       // PPS). A newly arrived set invalidates every cached set of the same or
       // higher rank: a fresh SPS/VPS starts a new configuration generation,
       // while a fresh PPS only replaces the previous PPS. Lower-rank sets that
-      // the new one still depends on are kept.
-      const int rank = ParamRank(media_type, nal_type);
+      // the new one still depends on are kept. A parameter-set-only AU is
+      // cached whole under its lowest-rank parameter type.
+      const int rank = ParamRank(media_type, scan.param_nal_type);
       params_.erase(
           std::remove_if(params_.begin(), params_.end(),
                          [media_type, rank](const ParamSet& ps) {
@@ -183,7 +231,7 @@ void GopCache::StoreLocked(MediaChannelId channel, const MediaType& media_type,
                          }),
           params_.end());
       if (params_.size() < kMaxParamSets) {
-        params_.push_back(ParamSet{nal_type, Copy(channel, pkt)});
+        params_.push_back(ParamSet{scan.param_nal_type, Copy(channel, pkt)});
         std::stable_sort(params_.begin(), params_.end(),
                          [media_type](const ParamSet& a, const ParamSet& b) {
                            return ParamRank(media_type, a.nal_type) <
@@ -196,7 +244,9 @@ void GopCache::StoreLocked(MediaChannelId channel, const MediaType& media_type,
       return;
     }
 
-    if (pkt.type == VIDEO_FRAME_I) {
+    // Any IDR inside the AU starts a new GOP, even when the AU also carries
+    // parameter sets and SEI NALs ahead of it.
+    if (pkt.type == VIDEO_FRAME_I || (!is_fu && scan.has_idr)) {
       if (!pending_idr_.empty()) {
         // Continuation of a fragmented IDR.
         pending_idr_.push_back(Copy(channel, pkt));
@@ -265,6 +315,9 @@ void GopCache::Reset() {
 void GopCache::ClearGopLocked() {
   gop_.clear();
   pending_idr_.clear();
+  // SRS clear() resets the pure-audio counter as well; otherwise the counter
+  // would stay over the threshold and clear on every subsequent audio packet.
+  audio_after_last_video_ = 0;
 }
 
 void GopCache::ResetLocked() {

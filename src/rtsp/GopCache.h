@@ -41,7 +41,12 @@ class GopCache {
   void Reset();
 
   bool Empty() const;
+  // Number of cached RTP packets (parameter sets + GOP), not decoded video
+  // frames: one access unit may span several packets after FU-A
+  // fragmentation. max_frames is applied to the same packet count.
   size_t FrameCount() const;
+  // Sum of cached RTP payload sizes. Each RtpPacket still owns a fixed
+  // 1600-byte buffer, so the effective memory bound is higher than max_bytes.
   size_t ByteCount() const;
 
  private:
@@ -50,10 +55,21 @@ class GopCache {
     CachedPacket packet;
   };
 
+  // Result of scanning a non-fragmented access unit for NAL types.
+  struct AccessUnitScan {
+    bool has_idr = false;
+    bool has_param_set = false;
+    // Lowest-rank parameter-set NAL type found (VPS < SPS < PPS).
+    uint8_t param_nal_type = 0;
+  };
+
   static CachedPacket Copy(MediaChannelId channel, const RtpPacket& pkt);
   static bool IsFuPacket(MediaType media_type, const RtpPacket& pkt);
-  static bool ParseNalType(MediaType media_type, const RtpPacket& pkt,
-                           uint8_t* nal_type);
+  // Scan every start-code-delimited NAL in one access unit. Tolerates a
+  // missing leading start code, back-to-back start codes and 00 00 03
+  // emulation-prevention bytes.
+  static AccessUnitScan ScanAccessUnit(MediaType media_type, const uint8_t* p,
+                                       size_t size);
   static bool IsParameterSet(MediaType media_type, uint8_t nal_type);
   static int ParamRank(MediaType media_type, uint8_t nal_type);
   static bool IsVideoType(uint8_t frame_type);

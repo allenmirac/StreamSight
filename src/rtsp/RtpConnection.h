@@ -117,6 +117,14 @@ class RtpConnection {
   void StopRtcpTimer();
   void OnRtcpTimer();
 
+  // Prefix for the per-connection, per-channel RTCP gauges. Built from the
+  // object address so concurrent connections do not share keys; the
+  // destructor removes every key with this prefix.
+  std::string RtcpMetricPrefix(uint8_t channel) const {
+    return "conn" + std::to_string(reinterpret_cast<uintptr_t>(this)) + "_" +
+           std::to_string(channel);
+  }
+
   std::weak_ptr<streamsight::net::TcpConnection> rtsp_connection_;
   std::string rtsp_ip_;
   uint16_t rtsp_port_;
@@ -137,6 +145,8 @@ class RtpConnection {
   struct sockaddr_in peer_rtp_addr_[MAX_MEDIA_CHANNEL];
   struct sockaddr_in peer_rtcp_sddr_[MAX_MEDIA_CHANNEL];
   MediaChannelInfo media_channel_info_[MAX_MEDIA_CHANNEL];
+  // Written by OnRtcpPacket() and read by GetRtcpStats() on the event-loop
+  // thread; not synchronized because both run on that single thread.
   RtcpStats rtcp_stats_[MAX_MEDIA_CHANNEL];
 
   streamsight::net::TimerId rtcp_timer_id_ = 0;

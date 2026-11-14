@@ -59,6 +59,7 @@ class RtspTestClient {
       ::close(fd_);
       fd_ = -1;
     }
+    CloseUdpSockets();
   }
 
   uint32_t session_id() const { return session_id_; }
@@ -88,6 +89,25 @@ class RtspTestClient {
     return Request("SETUP", path, transport, response);
   }
 
+  // SETUP over UDP. Both client sockets are bound with port 0 up front and
+  // kept open, so the server always has a valid peer address and there is no
+  // free-port race. The server's ports are parsed from the response.
+  bool SetupUdp(const std::string& path, std::string* response) {
+    if (!OpenUdpSockets()) return false;
+    char transport[160];
+    std::snprintf(transport, sizeof(transport),
+                  "Transport: RTP/AVP;unicast;client_port=%u-%u\r\n",
+                  static_cast<unsigned>(client_rtp_port_),
+                  static_cast<unsigned>(client_rtcp_port_));
+    if (!Request("SETUP", path, transport, response)) return false;
+    return ParseServerPort(*response, &server_rtp_port_, &server_rtcp_port_);
+  }
+
+  uint16_t client_rtp_port() const { return client_rtp_port_; }
+  uint16_t client_rtcp_port() const { return client_rtcp_port_; }
+  uint16_t server_rtp_port() const { return server_rtp_port_; }
+  uint16_t server_rtcp_port() const { return server_rtcp_port_; }
+
   bool Play(std::string* response, const std::string& path = "/live") {
     return Request("PLAY", path, SessionHeader(), response);
   }
@@ -115,6 +135,34 @@ class RtspTestClient {
     }
   }
 
+  // Receive one RTP packet on the client UDP RTP socket.
+  bool ReadUdpRtp(RtpPacketView* out, int timeout_ms = 2000) {
+    if (udp_rtp_fd_ < 0) return false;
+    pollfd pfd{udp_rtp_fd_, POLLIN, 0};
+    if (::poll(&pfd, 1, timeout_ms) <= 0) return false;
+    uint8_t buf[2048];
+    const ssize_t n = ::recv(udp_rtp_fd_, buf, sizeof(buf), 0);
+    if (n < 12) return false;
+    RtpPacketView view;
+    view.rtp.assign(buf, buf + n);
+    if (!ParseRtpView(&view)) return false;
+    *out = std::move(view);
+    return true;
+  }
+
+  // Send an RTCP compound packet to the server's RTCP port from the client
+  // RTCP socket, matching how a real client pairs its ports.
+  bool SendUdpRtcp(const uint8_t* data, size_t size) {
+    if (udp_rtcp_fd_ < 0 || server_rtcp_port_ == 0) return false;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(server_rtcp_port_);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    return ::sendto(udp_rtcp_fd_, data, size, 0,
+                    reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) ==
+           static_cast<ssize_t>(size);
+  }
+
   bool SendInterleaved(uint8_t channel, const uint8_t* data, size_t size) {
     std::vector<uint8_t> frame(4 + size);
     frame[0] = '$';
@@ -126,6 +174,64 @@ class RtspTestClient {
   }
 
  private:
+  static bool BindUdp(int fd, uint16_t* port) {
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = 0;  // let the OS pick a free port
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+      return false;
+    }
+    socklen_t len = sizeof(addr);
+    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
+      return false;
+    }
+    *port = ntohs(addr.sin_port);
+    return *port != 0;
+  }
+
+  bool OpenUdpSockets() {
+    if (udp_rtp_fd_ >= 0 && udp_rtcp_fd_ >= 0) return true;
+    udp_rtp_fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    udp_rtcp_fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_rtp_fd_ < 0 || udp_rtcp_fd_ < 0 ||
+        !BindUdp(udp_rtp_fd_, &client_rtp_port_) ||
+        !BindUdp(udp_rtcp_fd_, &client_rtcp_port_)) {
+      CloseUdpSockets();
+      return false;
+    }
+    return true;
+  }
+
+  void CloseUdpSockets() {
+    if (udp_rtp_fd_ >= 0) {
+      ::close(udp_rtp_fd_);
+      udp_rtp_fd_ = -1;
+    }
+    if (udp_rtcp_fd_ >= 0) {
+      ::close(udp_rtcp_fd_);
+      udp_rtcp_fd_ = -1;
+    }
+    client_rtp_port_ = 0;
+    client_rtcp_port_ = 0;
+  }
+
+  static bool ParseServerPort(const std::string& response, uint16_t* rtp,
+                              uint16_t* rtcp) {
+    const size_t pos = response.find("server_port=");
+    if (pos == std::string::npos) return false;
+    unsigned r = 0;
+    unsigned c = 0;
+    if (std::sscanf(response.c_str() + pos, "server_port=%u-%u", &r, &c) !=
+        2) {
+      return false;
+    }
+    if (r == 0 || r > 65535 || c == 0 || c > 65535) return false;
+    *rtp = static_cast<uint16_t>(r);
+    *rtcp = static_cast<uint16_t>(c);
+    return true;
+  }
+
   std::string SessionHeader() const {
     return "Session: " + std::to_string(session_id_) + "\r\n";
   }
@@ -268,6 +374,12 @@ class RtspTestClient {
 
   uint16_t port_;
   int fd_ = -1;
+  int udp_rtp_fd_ = -1;
+  int udp_rtcp_fd_ = -1;
+  uint16_t client_rtp_port_ = 0;
+  uint16_t client_rtcp_port_ = 0;
+  uint16_t server_rtp_port_ = 0;
+  uint16_t server_rtcp_port_ = 0;
   uint32_t cseq_ = 1;
   uint32_t session_id_ = 0;
   std::vector<uint8_t> in_;

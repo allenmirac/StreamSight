@@ -24,7 +24,7 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 | 层次 | 目录 | 职责 |
 |------|------|------|
 | 网络通信层 | `src/net/` | 提供基于 Reactor 模式的异步事件驱动网络框架，封装 epoll/select、TCP 连接管理、定时器和内存管理 |
-| RTSP 流媒体层 | `src/rtsp/` | 实现 RTSP/RTP/RTCP 协议栈，包括服务端、推流端、媒体会话管理、多种编码格式的媒体源封装、RTCP SR 发送和 SEI 延迟标记注入 |
+| RTSP 流媒体层 | `src/rtsp/` | 实现 RTSP/RTP/RTCP 协议栈，包括服务端、推流端、媒体会话管理、多种编码格式的媒体源封装、RTCP SR 发送、RTCP RR/复合包接收解析与每连接 `rtcp.*` 指标、SRS 风格 GOP 缓存与晚加入客户端重放，以及 SEI 延迟标记注入 |
 | AI 分析层 | `src/ai/` | 提供人脸检测与识别、人脸库管理、帧分析调度、画面叠加绘制和事件日志；本层为无状态算法组件，由 `src/effect/` 的插件驱动 |
 | FFmpeg 管线层 | `src/ffmpeg/` | 提供基于 FFmpeg C API 的进程内媒体管线：StreamServer 进程级共享 EventLoop+RtspServer，StreamSession 单流会话抽象，StreamPipeline 3-stage 并行管线（Demux+Decode → AI Process → Encode+Output），FrameDropPolicy 自适应丢帧，支持音视频混合和多协议输出 |
 | EffectPlugin 插件层 | `src/effect/` | 提供 IEffectPlugin 统一接口、EffectChain 有序执行链、EffectFactory JSON 配置化创建，FaceRecognitionPlugin 作为首个内置插件 |
@@ -129,7 +129,8 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 - `H264Source` 和 `H264Parser` 负责 H.264 码流的封装、SPS/PPS 解析和时间戳管理。
 - `H265Source` 提供 H.265/HEVC 码流的 RTSP 封装支持。
 - `AACSource`、`G711ASource` 和 `VP8Source` 分别提供 AAC 音频、G.711A 音频和 VP8 视频格式的支持。
-- `RtcpMessage` 实现 RTCP Sender Report (SR) 报文的构建与 NTP 时间戳生成，`RtpConnection` 每 5 秒周期性发送 SR，提供 NTP↔RTP 时间戳映射供客户端计算延迟。
+- `RtcpMessage` 实现 RTCP Sender Report (SR) 报文的构建与 NTP 时间戳生成，`RtpConnection` 每 5 秒周期性发送 SR，提供 NTP↔RTP 时间戳映射供客户端计算延迟；同时解析客户端发来的 RTCP RR/复合包（SR/RR/SDES/BYE），把丢包率、累计丢包、抖动和 RTT 写入每连接 `rtcp.*` 指标，连接销毁时清理对应 gauge。
+- `GopCache` 实现 SRS 风格 GOP 缓存：保存最新参数集与最近一个完整 GOP，新客户端 PLAY 时先重放缓存再转入直播。生产编码器把 SPS+PPS+SEI+IDR 放在同一个访问单元（AU）中，因此按 AU 扫描全部起始码分隔的 NAL 来区分 IDR、参数集和 P/B 帧。
 - `SeiLatencyMarker` 提供 H.264 SEI NAL 单元的注入工具，可在 IDR 帧前嵌入发送端时间戳，用于跨机器延迟测量。
 
 **媒体会话管理**
