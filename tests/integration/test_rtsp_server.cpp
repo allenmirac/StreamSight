@@ -78,8 +78,8 @@ class RtspServerFixture {
   uint32_t session_id_ = 0;
 };
 
-bool Handshake(RtspTestClient* client,
-               std::string* describe_response = nullptr) {
+[[maybe_unused]] bool Handshake(RtspTestClient* client,
+                                std::string* describe_response = nullptr) {
   if (!client->Connect()) return false;
   std::string resp, sdp;
   if (!client->Options(&resp)) return false;
@@ -95,7 +95,8 @@ bool Handshake(RtspTestClient* client,
   return resp.find("RTSP/1.0 200 OK") != std::string::npos;
 }
 
-std::vector<uint8_t> Nal(uint8_t header, size_t payload_size) {
+[[maybe_unused]] std::vector<uint8_t> Nal(uint8_t header,
+                                          size_t payload_size) {
   std::vector<uint8_t> out(1 + payload_size, 0x5A);
   out[0] = header;
   return out;
