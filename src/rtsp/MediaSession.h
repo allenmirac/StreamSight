@@ -65,7 +65,10 @@ class MediaSession {
 
   MediaSessionId GetMediaSessionId() { return session_id_; }
 
-  uint32_t GetNumClient() const { return (uint32_t)clients_.size(); }
+  uint32_t GetNumClient() const {
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    return (uint32_t)clients_.size();
+  }
 
   bool IsMulticast() const { return is_multicast_; }
 
@@ -94,7 +97,7 @@ class MediaSession {
   std::vector<NotifyConnectedCallback> notify_connected_callbacks_;
   std::vector<NotifyDisconnectedCallback> notify_disconnected_callbacks_;
   std::mutex mutex_;
-  std::mutex map_mutex_;
+  mutable std::mutex map_mutex_;
   std::map<SOCKET, std::weak_ptr<RtpConnection>> clients_;
 
   bool is_multicast_ = false;
