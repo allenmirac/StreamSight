@@ -2,6 +2,7 @@
 
 #include "MediaSession.h"
 #include "MediaSource.h"
+#include "RtcpMessage.h"
 #include "RtspServer.h"
 #include "net/SocketUtil.h"
 
@@ -191,27 +192,38 @@ void RtspConnection::SendRtspMessage(std::shared_ptr<char> buf, uint32_t size) {
 void RtspConnection::HandleRtcp(BufferReader& buffer) {
   // TCP interleaved RTCP: $ + channel + length + RTCP compound packet
   char* peek = buffer.Peek();
-  if (peek[0] == '$' && buffer.ReadableBytes() > 4) {
-    uint32_t pkt_size = peek[2] << 8 | peek[3];
+  if (peek[0] == '$' && buffer.ReadableBytes() >= 4) {
+    const uint32_t pkt_size = (static_cast<uint8_t>(peek[2]) << 8) |
+                              static_cast<uint8_t>(peek[3]);
     if (pkt_size + 4 <= buffer.ReadableBytes()) {
-      // RTCP data at peek+4, size=pkt_size
-      // Could parse SR (PT=200) or RR (PT=201) here
-      // For now, keep the session alive and log presence
+      if (rtp_conn_ != nullptr) {
+        MediaChannelId hint = channel_0;
+        for (int c = 0; c < MAX_MEDIA_CHANNEL; ++c) {
+          if (rtp_conn_->GetRtcpChannel(static_cast<MediaChannelId>(c)) ==
+              static_cast<uint8_t>(peek[1])) {
+            hint = static_cast<MediaChannelId>(c);
+            break;
+          }
+        }
+        if (IsRtcp(reinterpret_cast<const uint8_t*>(peek) + 4, pkt_size)) {
+          rtp_conn_->OnRtcpPacket(
+              hint, reinterpret_cast<const uint8_t*>(peek) + 4, pkt_size);
+        }
+      }
       buffer.Retrieve(pkt_size + 4);
       KeepAlive();
     }
   }
 }
 
-void RtspConnection::HandleRtcp(SOCKET sockfd) {
+void RtspConnection::HandleRtcp(SOCKET sockfd, MediaChannelId channel_id) {
   uint8_t buf[1500];
-  ssize_t n = recv(sockfd, buf, sizeof(buf), 0);
+  const ssize_t n = recv(sockfd, buf, sizeof(buf), 0);
   if (n > 0) {
     KeepAlive();
-    // Parse RTCP compound packet if needed:
-    // RtcpHeader* hdr = (RtcpHeader*)buf;
-    // if (hdr->version == 2 && hdr->pt == 200) { ... SR ... }
-    // if (hdr->version == 2 && hdr->pt == 201) { ... RR ... }
+    if (rtp_conn_ != nullptr && IsRtcp(buf, static_cast<size_t>(n))) {
+      rtp_conn_->OnRtcpPacket(channel_id, buf, static_cast<size_t>(n));
+    }
   }
 }
 
@@ -320,7 +332,9 @@ void RtspConnection::HandleCmdSetup() {
         SOCKET rtcp_fd = rtp_conn_->GetRtcpSocket(channel_id);
         rtcp_channels_[channel_id].reset(new Channel(rtcp_fd));
         rtcp_channels_[channel_id]->SetReadCallback(
-            [rtcp_fd, this]() { this->HandleRtcp(rtcp_fd); });
+            [rtcp_fd, channel_id, this]() {
+              this->HandleRtcp(rtcp_fd, channel_id);
+            });
         rtcp_channels_[channel_id]->EnableReading();
         task_scheduler_->UpdateChannel(rtcp_channels_[channel_id]);
       } else {

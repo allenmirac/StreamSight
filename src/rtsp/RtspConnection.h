@@ -77,7 +77,7 @@ class RtspConnection : public streamsight::net::TcpConnection {
 
   bool OnRead(streamsight::net::BufferReader& buffer);
   void OnClose();
-  void HandleRtcp(SOCKET sockfd);
+  void HandleRtcp(SOCKET sockfd, MediaChannelId channel_id);
   void HandleRtcp(streamsight::net::BufferReader& buffer);
   bool HandleRtspRequest(streamsight::net::BufferReader& buffer);
   bool HandleRtspResponse(streamsight::net::BufferReader& buffer);

@@ -1,9 +1,12 @@
 #include "RtpConnection.h"
 
+#include <arpa/inet.h>
+
 #include "RtcpMessage.h"
 #include "RtspConnection.h"
 #include "net/SocketUtil.h"
 #include "observe/LatencyTracer.h"
+#include "observe/MetricsRegistry.h"
 
 using namespace std;
 using namespace streamsight::rtsp;
@@ -308,6 +311,53 @@ int RtpConnection::SendRtpOverUdp(MediaChannelId channel_id, RtpPacket pkt) {
   }
 
   return ret;
+}
+
+// ─── RTCP reception ─────────────────────────────────────────────────────
+
+void RtpConnection::OnRtcpPacket(MediaChannelId channel_hint,
+                                 const uint8_t* data, size_t len) {
+  RtcpParseResult result;
+  if (!ParseRtcpCompound(data, len, result)) return;
+
+  streamsight::observe::MetricsRegistry& metrics =
+      streamsight::observe::MetricsRegistry::Instance();
+  metrics.IncCounter("rtcp", "packets_rx");
+  metrics.IncCounter("rtcp", "rr_blocks_rx",
+                     static_cast<double>(result.report_blocks.size()));
+  if (result.report_blocks.empty()) return;
+
+  const uint32_t now_middle =
+      static_cast<uint32_t>(GetNtpTimestamp() >> 16);
+  for (const RtcpReportBlock& rb : result.report_blocks) {
+    MediaChannelId channel = channel_hint;
+    bool matched = false;
+    for (int c = 0; c < MAX_MEDIA_CHANNEL; ++c) {
+      if (ntohl(media_channel_info_[c].rtp_header.ssrc) == rb.ssrc) {
+        channel = static_cast<MediaChannelId>(c);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched && rb.ssrc != 0) continue;
+
+    RtcpStats& stats = rtcp_stats_[channel];
+    stats.fraction_lost = rb.fraction_lost;
+    stats.cumulative_lost = rb.cumulative_lost;
+    stats.jitter = rb.jitter;
+    stats.rtt_us = ComputeRttUs(rb.lsr, rb.dlsr, now_middle);
+    stats.last_report_middle = now_middle;
+    stats.valid = true;
+
+    const std::string prefix =
+        "conn" + std::to_string(reinterpret_cast<uintptr_t>(this)) + "_" +
+        std::to_string(channel);
+    metrics.SetGauge("rtcp", prefix + "_fraction_lost", stats.fraction_lost);
+    metrics.SetGauge("rtcp", prefix + "_cumulative_lost",
+                     stats.cumulative_lost);
+    metrics.SetGauge("rtcp", prefix + "_jitter", stats.jitter);
+    metrics.SetGauge("rtcp", prefix + "_rtt_us", stats.rtt_us);
+  }
 }
 
 // ─── RTCP Sender Report ──────────────────────────────────────────────────

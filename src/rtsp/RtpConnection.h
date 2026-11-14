@@ -1,12 +1,14 @@
 #ifndef STREAMSIGHT_RTSP_RTP_CONNECTION_H
 #define STREAMSIGHT_RTSP_RTP_CONNECTION_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <random>
 #include <string>
 #include <vector>
 
+#include "RtcpMessage.h"
 #include "media.h"
 #include "net/Socket.h"
 #include "net/TcpConnection.h"
@@ -79,6 +81,26 @@ class RtpConnection {
 
   bool HasKeyFrame() const { return has_key_frame_; }
 
+  // Latest RTCP receiver-report statistics for one media channel.
+  struct RtcpStats {
+    uint32_t fraction_lost = 0;
+    int32_t cumulative_lost = 0;
+    uint32_t jitter = 0;
+    uint32_t rtt_us = 0;
+    uint32_t last_report_middle = 0;
+    bool valid = false;
+  };
+
+  // Consume a compound RTCP packet received for a media channel.
+  void OnRtcpPacket(MediaChannelId channel_hint, const uint8_t* data,
+                    size_t len);
+  const RtcpStats& GetRtcpStats(MediaChannelId channel_id) const {
+    return rtcp_stats_[channel_id];
+  }
+  uint16_t GetRtcpChannel(MediaChannelId channel_id) const {
+    return media_channel_info_[channel_id].rtcp_channel;
+  }
+
  private:
   friend class RtspConnection;
   friend class MediaSession;
@@ -111,6 +133,7 @@ class RtpConnection {
   struct sockaddr_in peer_rtp_addr_[MAX_MEDIA_CHANNEL];
   struct sockaddr_in peer_rtcp_sddr_[MAX_MEDIA_CHANNEL];
   MediaChannelInfo media_channel_info_[MAX_MEDIA_CHANNEL];
+  RtcpStats rtcp_stats_[MAX_MEDIA_CHANNEL];
 
   streamsight::net::TimerId rtcp_timer_id_ = 0;
 };
