@@ -254,6 +254,15 @@ if(BUILD_TESTS)
         LIBS ${CORE_TEST_LIBS}
         LABELS "fast;tsan")
 
+    file(GLOB TEST_RTSP_INTEGRATION_TESTS CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/*.cpp)
+    if(TEST_RTSP_INTEGRATION_TESTS)
+        streamsight_add_test(test_rtsp_integration
+            SOURCES ${TEST_CORE_SRCS} ${TEST_RTSP_INTEGRATION_TESTS}
+            LIBS ${CORE_TEST_LIBS}
+            LABELS "heavy;tsan")
+    endif()
+
     if(OpenCV_FOUND)
         file(GLOB TEST_AI_TESTS CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/ai/*.cpp)
