@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "GopCache.h"
 #include "RtcpMessage.h"
 #include "media.h"
 #include "net/Socket.h"
@@ -69,6 +70,8 @@ class RtpConnection {
   std::string GetMulticastIp(MediaChannelId channel_id) const;
 
   void Play();
+  // Replay cached packets in one trigger event, then resume live sending.
+  void PlayWithReplay(const std::vector<CachedPacket>& replay);
   void Record();
   void Teardown();
 
@@ -106,6 +109,7 @@ class RtpConnection {
   friend class MediaSession;
   void SetFrameType(uint8_t frameType = 0);
   void SetRtpHeader(MediaChannelId channel_id, RtpPacket pkt);
+  void DoSendRtpPacket(MediaChannelId channel_id, RtpPacket pkt);
   int SendRtpOverTcp(MediaChannelId channel_id, RtpPacket pkt);
   int SendRtpOverUdp(MediaChannelId channel_id, RtpPacket pkt);
 

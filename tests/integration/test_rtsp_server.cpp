@@ -258,3 +258,108 @@ TEST(RtspIntegration, RtcpReceiverReportUpdatesMetricsAndKeepsAlive) {
   ASSERT_TRUE(client.GetParameter(&resp));
   EXPECT_NE(resp.find("RTSP/1.0 200 OK"), std::string::npos);
 }
+
+TEST(RtspIntegration, KeyframeGatesLivePackets) {
+  RtspServerFixture fixture;
+  ASSERT_TRUE(fixture.Start());
+  RtspTestClient client(fixture.port());
+  ASSERT_TRUE(Handshake(&client));
+
+  ASSERT_TRUE(fixture.PushH264(Nal(0x41, 32), streamsight::rtsp::VIDEO_FRAME_P,
+                               1000));
+  RtpPacketView view;
+  EXPECT_FALSE(client.ReadRtp(&view, 200));
+
+  ASSERT_TRUE(fixture.PushH264(Nal(0x65, 64), streamsight::rtsp::VIDEO_FRAME_I,
+                               2000));
+  ASSERT_TRUE(client.ReadRtp(&view, 2000));
+  ASSERT_GE(view.payload_size(), 5u);
+  EXPECT_EQ(view.payload()[4], 0x65);
+}
+
+TEST(RtspIntegration, LateClientReceivesCachedGopAndLiveFanout) {
+  RtspServerFixture fixture;
+  ASSERT_TRUE(fixture.Start());
+
+  RtspTestClient first(fixture.port());
+  ASSERT_TRUE(Handshake(&first));
+
+  ASSERT_TRUE(fixture.PushH264(Nal(0x67, 4), streamsight::rtsp::VIDEO_FRAME_I,
+                               1000));
+  ASSERT_TRUE(fixture.PushH264(Nal(0x68, 4), streamsight::rtsp::VIDEO_FRAME_I,
+                               2000));
+  ASSERT_TRUE(fixture.PushH264(Nal(0x65, 32), streamsight::rtsp::VIDEO_FRAME_I,
+                               3000));
+  ASSERT_TRUE(fixture.PushH264(Nal(0x41, 32), streamsight::rtsp::VIDEO_FRAME_P,
+                               4000));
+
+  for (uint8_t expected : {0x67, 0x68, 0x65, 0x41}) {
+    RtpPacketView view;
+    ASSERT_TRUE(first.ReadRtp(&view, 2000));
+    ASSERT_GE(view.payload_size(), 5u);
+    EXPECT_EQ(view.payload()[4], expected);
+  }
+
+  RtspTestClient second(fixture.port());
+  ASSERT_TRUE(Handshake(&second));
+
+  const std::vector<uint8_t> expected_headers = {0x67, 0x68, 0x65, 0x41};
+  const std::vector<uint32_t> expected_ts = {1000, 2000, 3000, 4000};
+  RtpPacketView second_views[4];
+  for (size_t i = 0; i < expected_headers.size(); ++i) {
+    ASSERT_TRUE(second.ReadRtp(&second_views[i], 2000));
+    ASSERT_GE(second_views[i].payload_size(), 5u);
+    EXPECT_EQ(second_views[i].payload()[4], expected_headers[i]);
+    EXPECT_EQ(second_views[i].timestamp, expected_ts[i]);
+  }
+
+  ASSERT_TRUE(fixture.PushH264(Nal(0x41, 32), streamsight::rtsp::VIDEO_FRAME_P,
+                               5000));
+  RtpPacketView a_live;
+  RtpPacketView b_live;
+  ASSERT_TRUE(first.ReadRtp(&a_live, 2000));
+  ASSERT_TRUE(second.ReadRtp(&b_live, 2000));
+  const std::vector<uint8_t> a_payload(
+      a_live.payload(), a_live.payload() + a_live.payload_size());
+  const std::vector<uint8_t> b_payload(
+      b_live.payload(), b_live.payload() + b_live.payload_size());
+  EXPECT_EQ(a_payload, b_payload);
+  EXPECT_NE(a_live.ssrc, b_live.ssrc);
+}
+
+TEST(RtspIntegration, SlowClientDoesNotBlockFastClient) {
+  RtspServerFixture fixture;
+  ASSERT_TRUE(fixture.Start());
+
+  RtspTestClient fast(fixture.port());
+  RtspTestClient slow(fixture.port());
+  ASSERT_TRUE(Handshake(&fast));
+  ASSERT_TRUE(Handshake(&slow));
+
+  ASSERT_TRUE(fixture.PushH264(Nal(0x67, 4), streamsight::rtsp::VIDEO_FRAME_I,
+                               1000));
+  ASSERT_TRUE(fixture.PushH264(Nal(0x68, 4), streamsight::rtsp::VIDEO_FRAME_I,
+                               2000));
+  ASSERT_TRUE(fixture.PushH264(Nal(0x65, 32), streamsight::rtsp::VIDEO_FRAME_I,
+                               3000));
+
+  RtpPacketView view;
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_TRUE(fast.ReadRtp(&view, 2000));
+    ASSERT_TRUE(slow.ReadRtp(&view, 2000));
+  }
+
+  constexpr int kFrames = 100;
+  for (int i = 0; i < kFrames; ++i) {
+    ASSERT_TRUE(fixture.PushH264(Nal(0x41, 32),
+                                 streamsight::rtsp::VIDEO_FRAME_P,
+                                 4000u + static_cast<uint32_t>(i)));
+  }
+
+  int received = 0;
+  for (int i = 0; i < kFrames; ++i) {
+    if (!fast.ReadRtp(&view, 2000)) break;
+    ++received;
+  }
+  EXPECT_EQ(received, kFrames);
+}

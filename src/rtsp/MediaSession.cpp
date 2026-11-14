@@ -50,8 +50,10 @@ void MediaSession::AddNotifyDisconnectedCallback(
 }
 
 bool MediaSession::AddSource(MediaChannelId channel_id, MediaSource* source) {
+  const MediaType media_type = source->GetMediaType();
+  gop_cache_.Reset();
   source->SetSendFrameCallback(
-      [this](MediaChannelId channel_id, RtpPacket pkt) {
+      [this, media_type](MediaChannelId channel_id, RtpPacket pkt) {
         std::forward_list<std::shared_ptr<RtpConnection>> clients;
         std::map<int, RtpPacket> packets;
         {
@@ -94,6 +96,7 @@ bool MediaSession::AddSource(MediaChannelId channel_id, MediaSource* source) {
             }
           }
         }
+        gop_cache_.Store(channel_id, media_type, pkt);
         return true;
       });
 
@@ -103,6 +106,7 @@ bool MediaSession::AddSource(MediaChannelId channel_id, MediaSource* source) {
 
 bool MediaSession::RemoveSource(MediaChannelId channel_id) {
   media_sources_[channel_id] = nullptr;
+  gop_cache_.Reset();
   return true;
 }
 

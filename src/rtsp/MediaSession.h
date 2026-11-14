@@ -14,6 +14,7 @@
 
 #include "AACSource.h"
 #include "G711ASource.h"
+#include "GopCache.h"
 #include "H264Source.h"
 #include "H265Source.h"
 #include "MediaSource.h"
@@ -54,6 +55,9 @@ class MediaSession {
 
   MediaSource* GetMediaSource(MediaChannelId channel_id);
 
+  // Cached parameter sets followed by the last complete GOP.
+  std::vector<CachedPacket> SnapshotGop() { return gop_cache_.Snapshot(); }
+
   bool HandleFrame(MediaChannelId channel_id, AVFrame frame);
 
   bool AddClient(SOCKET rtspfd, std::shared_ptr<RtpConnection> rtp_conn);
@@ -85,6 +89,7 @@ class MediaSession {
 
   std::vector<std::unique_ptr<MediaSource>> media_sources_;
   std::vector<streamsight::net::RingBuffer<AVFrame>> buffer_;
+  GopCache gop_cache_;
 
   std::vector<NotifyConnectedCallback> notify_connected_callbacks_;
   std::vector<NotifyDisconnectedCallback> notify_disconnected_callbacks_;

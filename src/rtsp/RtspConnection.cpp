@@ -375,8 +375,24 @@ void RtspConnection::HandleCmdPlay() {
     return;
   }
 
+  // Snapshot the cache once, atomically, before PLAY resumes live sending.
+  // Multicast and pusher connections do not replay.
+  std::vector<CachedPacket> replay;
+  if (!rtp_conn_->IsMulticast()) {
+    auto rtsp = rtsp_.lock();
+    MediaSession::Ptr media_session =
+        rtsp ? rtsp->LookMediaSession(session_id_) : nullptr;
+    if (media_session) {
+      for (const CachedPacket& item : media_session->SnapshotGop()) {
+        if (rtp_conn_->IsSetup(item.channel)) {
+          replay.push_back(item);
+        }
+      }
+    }
+  }
+
   conn_state_ = START_PLAY;
-  rtp_conn_->Play();
+  rtp_conn_->PlayWithReplay(replay);
 
   uint16_t session_id = rtp_conn_->GetRtpSessionId();
   std::shared_ptr<char> res(new char[2048], std::default_delete<char[]>());

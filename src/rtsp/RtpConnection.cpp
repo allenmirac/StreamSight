@@ -166,13 +166,30 @@ bool RtpConnection::SetupRtpOverMulticast(MediaChannelId channel_id,
   return true;
 }
 
-void RtpConnection::Play() {
-  for (int chn = 0; chn < MAX_MEDIA_CHANNEL; chn++) {
-    if (media_channel_info_[chn].is_setup) {
-      media_channel_info_[chn].is_play = true;
+void RtpConnection::Play() { PlayWithReplay({}); }
+
+void RtpConnection::PlayWithReplay(const std::vector<CachedPacket>& replay) {
+  auto conn = rtsp_connection_.lock();
+  if (!conn) return;
+
+  RtspConnection* rtsp_conn = static_cast<RtspConnection*>(conn.get());
+  rtsp_conn->task_scheduler_->AddTriggerEvent([this, replay]() {
+    if (is_closed_) return;
+    // Enable sending before replay so the cached packets pass the is_play
+    // gate. Live packets queued before this event already saw is_play ==
+    // false and were dropped; those queued after will send normally.
+    for (int chn = 0; chn < MAX_MEDIA_CHANNEL; ++chn) {
+      if (media_channel_info_[chn].is_setup) {
+        media_channel_info_[chn].is_play = true;
+      }
     }
-  }
-  StartRtcpTimer();
+    for (const CachedPacket& item : replay) {
+      if (media_channel_info_[item.channel].is_setup) {
+        DoSendRtpPacket(item.channel, item.pkt);
+      }
+    }
+    StartRtcpTimer();
+  });
 }
 
 void RtpConnection::Record() {
@@ -248,6 +265,24 @@ void RtpConnection::SetRtpHeader(MediaChannelId channel_id, RtpPacket pkt) {
   }
 }
 
+void RtpConnection::DoSendRtpPacket(MediaChannelId channel_id, RtpPacket pkt) {
+  SetFrameType(pkt.type);
+  SetRtpHeader(channel_id, pkt);
+  if ((media_channel_info_[channel_id].is_play ||
+       media_channel_info_[channel_id].is_record) &&
+      has_key_frame_) {
+    if (transport_mode_ == RTP_OVER_TCP) {
+      SendRtpOverTcp(channel_id, pkt);
+    } else {
+      SendRtpOverUdp(channel_id, pkt);
+    }
+
+    media_channel_info_[channel_id].octet_count +=
+        (pkt.size - 4);  // payload only
+    media_channel_info_[channel_id].packet_count += 1;
+  }
+}
+
 int RtpConnection::SendRtpPacket(MediaChannelId channel_id, RtpPacket pkt) {
   if (is_closed_) {
     return -1;
@@ -258,27 +293,9 @@ int RtpConnection::SendRtpPacket(MediaChannelId channel_id, RtpPacket pkt) {
     return -1;
   }
 
-  RtspConnection* rtsp_conn = (RtspConnection*)conn.get();
-
-  bool ret =
-      rtsp_conn->task_scheduler_->AddTriggerEvent([this, channel_id, pkt] {
-        this->SetFrameType(pkt.type);
-        this->SetRtpHeader(channel_id, pkt);
-        if ((media_channel_info_[channel_id].is_play ||
-             media_channel_info_[channel_id].is_record) &&
-            has_key_frame_) {
-          if (transport_mode_ == RTP_OVER_TCP) {
-            SendRtpOverTcp(channel_id, pkt);
-          } else {
-            SendRtpOverUdp(channel_id, pkt);
-          }
-
-          media_channel_info_[channel_id].octet_count +=
-              (pkt.size - 4);  // payload only
-          media_channel_info_[channel_id].packet_count += 1;
-        }
-      });
-
+  RtspConnection* rtsp_conn = static_cast<RtspConnection*>(conn.get());
+  const bool ret = rtsp_conn->task_scheduler_->AddTriggerEvent(
+      [this, channel_id, pkt]() { DoSendRtpPacket(channel_id, pkt); });
   return ret ? 0 : -1;
 }
 
