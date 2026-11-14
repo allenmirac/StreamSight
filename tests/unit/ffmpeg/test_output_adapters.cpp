@@ -70,9 +70,11 @@ AVPacket* PacketWithSize(int size) {
 // the test tears the loop down; otherwise an immediate Stop() can be lost and
 // the destructor blocks forever joining the thread.
 bool WaitForLoopStarted(streamsight::net::EventLoop* loop) {
-  std::promise<void> started;
-  auto future = started.get_future();
-  if (!loop->AddTriggerEvent([&started]() { started.set_value(); })) {
+  // Shared ownership keeps the promise alive even if the callback runs after
+  // this helper times out and its stack frame is gone.
+  auto started = std::make_shared<std::promise<void>>();
+  auto future = started->get_future();
+  if (!loop->AddTriggerEvent([started]() { started->set_value(); })) {
     return false;
   }
   return future.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
@@ -150,8 +152,28 @@ TEST(RtspOutputAdapterTest, RejectsMissingServerOrSession) {
   EXPECT_FALSE(no_server.Open(nullptr, cfg));
   EXPECT_FALSE(no_server.IsOpened());
 
+  AVPacket* null_server_pkt = PacketWithSize(4);
+  EXPECT_FALSE(no_server.WritePacket(null_server_pkt));
+  av_packet_free(&null_server_pkt);
+
   RtspOutputAdapter no_session(nullptr, 0, 0);
   EXPECT_FALSE(no_session.Open(nullptr, cfg));
+}
+
+TEST(RtspOutputAdapterTest, RejectsWriteWhenSessionIdIsZero) {
+  streamsight::net::EventLoop loop(1);
+  ASSERT_TRUE(WaitForLoopStarted(&loop));
+  auto server = streamsight::rtsp::RtspServer::Create(&loop);
+  RtspOutputAdapter adapter(server.get(), 0, 0);
+  OutputConfig cfg;
+  EXPECT_FALSE(adapter.Open(nullptr, cfg));
+
+  // A real server is present, so this exercises the session_id == 0 guard in
+  // WritePacket rather than the null-server guard.
+  AVPacket* pkt = PacketWithSize(4);
+  EXPECT_FALSE(adapter.WritePacket(pkt));
+  av_packet_free(&pkt);
+  adapter.Close();
 }
 
 TEST(RtspOutputAdapterTest, SkipsEmptyPacket) {
