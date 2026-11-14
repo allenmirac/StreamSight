@@ -53,13 +53,13 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 
 | 路径 | 类型 | 说明 |
 |------|------|------|
-| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 1 个主构建目标 + 4 个 GoogleTest 测试目标 + 2 个压测/基准目标（`streamsight-stress`、`streamsight-netbench`） |
+| `CMakeLists.txt` | 文件 | CMake 构建配置（主构建方式），定义 1 个主构建目标 + 5 个 GoogleTest 测试目标 + 2 个压测/基准目标（`streamsight-stress`、`streamsight-netbench`） |
 | `README.md` / `README_CN.md` | 文件 | 中英文项目说明，含功能介绍、快速开始指南和目录结构 |
 | `LICENSE` | 文件 | Apache License 2.0 开源许可证 |
-| `docs/` | 目录 | 项目文档，含架构说明、API 接口文档、安装指南、CDN 设计、延迟测试方案和技术问答 |
+| `docs/` | 目录 | 项目文档：文档索引、架构说明、API 接口文档、安装运行指南、测试说明、延迟测量指南 |
 | `src/` | 目录 | 全部库和模块源码，按功能分为 net/rtsp/ai/ffmpeg/effect/api/observe 七个模块 + 3rdpart 第三方头文件 |
 | `src/main.cpp` | 文件 | 主入口源文件：StreamSession + StreamApiServer |
-| `tests/` | 目录 | 测试源码：`tests/unit/{core,ai,ffmpeg,api}` 分别为 net/rtsp/observe/FaceDatabase/JSON、检测/叠加/分析/日志/Effect、Pacer/FFmpegUtils/StreamSession、Session 注册表；`tests/support/` 为共享测试辅助 |
+| `tests/` | 目录 | 测试源码：`tests/unit/{core,ai,ffmpeg,api}` 覆盖协议与基础设施、AI/特效、FFmpeg 管线、API 注册表；`tests/integration/` 为 RTSP 服务端端到端测试；`tests/support/` 为共享测试辅助 |
 | `scripts/` | 目录 | 辅助脚本：analyze_latency.py（延迟分析）、run_latency_baseline.sh（一键基线测试）、run_perf_matrix.py（性能矩阵）、run_net_bench.sh（net 层微基准）、stress_test.py（压力测试）、tune_kernel.sh |
 | `models/` | 目录 | AI 模型文件存放目录，需单独下载 ONNX 模型 |
 | `pic/` | 目录 | 测试用媒体资源（图片、视频文件） |
@@ -293,6 +293,8 @@ StreamSight 采用分层架构设计，从底层网络通信到上层业务调�
 |------|------|
 | `test.h264` | H.264 裸流文件，用于 `streamsight` / `run_pull_test.sh` 输入测试 |
 | `1.pic.JPG` | 项目架构示意图 |
+
+自动化测试的目标划分、覆盖范围与运行方式见 [testing.md](testing.md)。
 
 ---
 

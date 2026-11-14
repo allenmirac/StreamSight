@@ -158,6 +158,7 @@ curl -X DELETE http://localhost:8080/api/faces/Alice
 ## GET /api/latency/stats
 
 返回各模块延迟统计（avg/p50/p95/p99/max），需先开启 LatencyTracer（设置 `STREAMSIGHT_LATENCY_ENABLE=1`）。
+开启方式、埋点范围与日志分析见 [latency-testing.md](latency-testing.md)。
 
 **响应**
 

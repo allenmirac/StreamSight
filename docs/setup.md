@@ -89,8 +89,10 @@ CMake 会自动检测 FFmpeg 和 OpenCV 依赖，缺少依赖时只跳过相关�
 cmake .. -DBUILD_TESTS=ON && make -j$(nproc)
 ctest --output-on-failure            # 全部
 ctest -L fast --output-on-failure    # 无 FFmpeg/OpenCV 依赖的快车道
-ctest -L tsan --output-on-failure    # 只选择带 tsan 标签的 test_core 用例（不启用 TSan 检测）
+ctest -L tsan --output-on-failure    # test_core + test_rtsp_integration（标签，不启用 TSan 检测）
 ```
+
+测试目标、覆盖范围与新增测试约定见 [testing.md](testing.md)。
 
 ### 测试与 sanitizer
 
@@ -119,9 +121,10 @@ ctest --test-dir build-tsan -L tsan --output-on-failure
 |---|---|
 | `streamsight` | ★ 主入口：StreamSession + StreamApiServer（音视频 + RTMP） |
 | `test_core` | net / rtsp / observe / FaceDatabase / JSON 工具，无外部依赖 |
+| `test_rtsp_integration` | RTSP 服务端端到端：握手、RTCP 指标、GOP 重放、慢客户端隔离 |
 | `test_ai_core` | AI 与 Effect 纯逻辑（需要 OpenCV） |
-| `test_ffmpeg` | FFmpeg 管线与 StreamSession 生命周期 |
-| `test_api` | StreamApiServer 注册表（HTTP 路由测试后续加入） |
+| `test_ffmpeg` | FFmpeg 工具、输出适配器、Pacer 与 StreamSession 生命周期 |
+| `test_api` | StreamApiServer 会话注册表（HTTP 路由尚未覆盖） |
 | `streamsight-netbench` | 网络层微基准（工具，不注册进 ctest） |
 | `streamsight-stress` | 多流压力测试（工具，不注册进 ctest） |
 
@@ -255,6 +258,8 @@ for line in sys.stdin:
 | `STREAMSIGHT_LATENCY_ENABLE` | (空) | 设置为 `1` 开启延迟追踪 |
 | `STREAMSIGHT_LATENCY_LOG` | `runtime/latency_events.jsonl` | JSONL 日志输出路径 |
 | `STREAMSIGHT_LATENCY_BUFFER_SIZE` | `10000` | 内存环形缓冲区大小 |
+
+开启方式、埋点范围与日志分析见 [latency-testing.md](latency-testing.md)。
 
 ---
 

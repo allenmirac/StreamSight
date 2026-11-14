@@ -35,25 +35,26 @@ cmake .. && make -j$(nproc)
 ### 运行测试
 
 ```bash
-cd build
-cmake .. -DBUILD_TESTS=ON
-make -j$(nproc)
-ctest --output-on-failure
-ctest -L fast --output-on-failure
+cmake -S . -B build -DBUILD_TESTS=ON
+cmake --build build -j$(nproc)
+ctest --test-dir build --output-on-failure
+ctest --test-dir build -L fast --output-on-failure   # 无需 FFmpeg/OpenCV
 ```
 
 构建选项：
 
 | 选项 | 默认 | 说明 |
 |------|------|------|
-| `BUILD_TESTS` | OFF | 构建 GoogleTest 测试目标（`test_core` / `test_ai_core` / `test_ffmpeg` / `test_api`） |
+| `BUILD_TESTS` | OFF | 构建 GoogleTest 测试目标：`test_core` / `test_rtsp_integration` / `test_ai_core` / `test_ffmpeg` / `test_api` |
+
+测试目标、ctest 标签、覆盖范围、ASan/TSan 构建和各目录的测试约定见 [docs/testing.md](docs/testing.md)。
 
 ## 代码风格
 
 - 语言标准：**C++17**。
 - 格式遵循仓库根目录的 `.clang-format`，提交前运行 `clang-format -i <file>`。
 - 命名与现有代码保持一致：类名 `CamelCase`，成员变量以下划线结尾（如 `mutex_`），命名空间小写。
-- 源码注释使用英文（与现有代码一致，全部 `src/` 文件均为英文注释）；面向用户的文档与 README 使用中文。
+- 源码注释使用英文（与现有代码一致，全部 `src/` 文件均为英文注释）；`docs/` 使用中文，README 提供中英双份。
 
 ## 提交规范
 

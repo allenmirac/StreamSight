@@ -55,6 +55,17 @@ mkdir -p build && cd build
 cmake .. && make -j$(nproc)
 ```
 
+### 运行测试
+
+```bash
+cmake -S . -B build -DBUILD_TESTS=ON
+cmake --build build -j$(nproc)
+ctest --test-dir build --output-on-failure
+ctest --test-dir build -L fast --output-on-failure   # 无需 FFmpeg/OpenCV
+```
+
+测试目标、覆盖矩阵、sanitizer 与 CI 车道见 [docs/testing.md](docs/testing.md)。
+
 ### 下载 AI 模型
 
 ```bash
@@ -157,11 +168,25 @@ src/
 ├── observe/   可观测性 (MetricsRegistry, LatencyTracer, EventBus)
 └── 3rdpart/   第三方头文件 (httplib)
 
+tests/
+├── unit/
+│   ├── core/       net、rtsp、observe、FaceDatabase、JSON
+│   ├── ai/         FaceDetector、Overlay、Analyzer、EventLogger、Effect
+│   ├── ffmpeg/     Pacer、FFmpegUtils、输出适配器、StreamSession
+│   └── api/        StreamApiServer 会话注册表
+├── integration/    RTSP 服务端端到端（握手、RTCP、GOP 重放）
+├── support/        测试辅助（临时目录、socketpair、假时钟、端口）
+├── lsan_suppressions.txt
+├── net_bench.cpp
+└── stress_tester.cpp
+
 docs/
-├── architecture.md          系统架构说明
-├── api.md                   REST API 文档
-├── setup.md                 安装与运行指南
-└── latency-testing-implementation.md  延迟测试实现
+├── README.md        文档索引
+├── architecture.md  系统架构说明
+├── api.md           REST API 文档
+├── setup.md         安装与运行指南
+├── testing.md       测试分层、覆盖矩阵、sanitizer 与 CI
+└── latency-testing.md  延迟追踪与测量
 ```
 
 ---

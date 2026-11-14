@@ -19,6 +19,10 @@
 - 多流压测工具 `streamsight-stress`（并行/串行模式、warmup、JSON 输出）。
 - Python 压测编排器 `scripts/stress_test.py` 与矩阵配置 `scripts/stress_config.yaml`。
 - EventLoop/TaskScheduler 循环统计、RingBuffer 峰值与背压事件追踪。
+- GoogleTest + ctest 测试体系：五个按依赖分层的测试目标（222 个用例）、`fast`/`heavy`/`http`/`tsan` 标签，
+  以及 ASan/UBSan 与 TSan 构建。
+- 文档：测试说明与覆盖矩阵（`docs/testing.md`）、延迟追踪指南（`docs/latency-testing.md`）和文档索引
+  （`docs/README.md`）。
 
 ### Changed
 

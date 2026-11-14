@@ -56,6 +56,18 @@ mkdir -p build && cd build
 cmake .. && make -j$(nproc)
 ```
 
+### Test
+
+```bash
+cmake -S . -B build -DBUILD_TESTS=ON
+cmake --build build -j$(nproc)
+ctest --test-dir build --output-on-failure
+ctest --test-dir build -L fast --output-on-failure   # no FFmpeg/OpenCV needed
+```
+
+See [docs/testing.md](docs/testing.md) for the test targets, coverage matrix, sanitizer builds, and
+CI lanes.
+
 ### Download AI Models
 
 ```bash
@@ -162,20 +174,23 @@ src/
 
 tests/
 ├── unit/
-│   ├── core/      net、rtsp、observe、FaceDatabase、JSON
-│   ├── ai/        FaceDetector、Overlay、Analyzer、EventLogger、Effect
-│   ├── ffmpeg/    Pacer、FFmpegUtils、StreamSession
-│   └── api/       StreamApiServer 注册表
-├── support/       测试辅助（临时目录、socketpair、假时钟、端口）
+│   ├── core/       net、rtsp、observe、FaceDatabase、JSON
+│   ├── ai/         FaceDetector、Overlay、Analyzer、EventLogger、Effect
+│   ├── ffmpeg/     Pacer、FFmpegUtils、output adapters、StreamSession
+│   └── api/        StreamApiServer session registry
+├── integration/    RTSP server end-to-end (handshake, RTCP, GOP replay)
+├── support/        Test helpers (temp dirs, socketpair, fake clock, ports)
 ├── lsan_suppressions.txt
 ├── net_bench.cpp
 └── stress_tester.cpp
 
 docs/
-├── architecture.md          System architecture (Chinese)
-├── api.md                   REST API documentation
-├── setup.md                 Install & run guide
-└── latency-testing-implementation.md  Latency testing implementation
+├── README.md        Documentation index
+├── architecture.md  System architecture (Chinese)
+├── api.md           REST API documentation
+├── setup.md         Install & run guide
+├── testing.md       Test layers, coverage, sanitizers, CI
+└── latency-testing.md  Latency tracing and measurement
 ```
 
 ---
